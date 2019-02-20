@@ -53,8 +53,11 @@
    Algorithm state is abstracted over by an opaque `storage-backend`. See
    bandit.learner-state for the implementation."
   (:require
+   [clojure.algo.generic.functor :refer [fmap]]
+   [clojure.math.numeric-tower :as math]
    [curbside.bandit.learner-state :as state]
-   [curbside.bandit.spec :as spec]))
+   [curbside.bandit.spec :as spec]
+   [curbside.bandit.util :as util]))
 
 (defmulti choose*
   "Chooses an ::spec/arm-name for the given learner. See documentation of
@@ -124,6 +127,46 @@
   (let [arm-states (state/get-arm-states storage-backend
                                          (::spec/experiment-name learner))]
     (nth (keys arm-states) (rand-int (count arm-states)))))
+
+(defn choose-softmax
+  "Softmax arm selection. Begins by choosing arms randomly with roughly equal
+   probability. As time passes, begins to choose the best arm with increasing
+   probability. The speed of convergence is based on the temperature parameter,
+   in a process analogous to annealing. Higher temperatures lead to more random
+   selection. Low temperatures lead to selecting the historically best arm.
+
+   Softmax is very sensitive to the choice of temperature parameters. Some
+   choices can lead to out-of-range floating point values, which cause
+   exceptions. For our problems, a good choice of starting temperature is 1.0,
+   with temp-decay-per-step set to `(/ 1.0 n)`, where n is equal to the number
+   of rewards after which the learner will stop exploring, and min-temperature
+   is set to 0.01."
+  [arm-states {::spec/keys [starting-temperature
+                            temp-decay-per-step
+                            min-temperature
+                            maximize?]}]
+  (let [arm-means (arm-states->arm-means arm-states)
+        total-iterations (reduce + (map (comp :n val) arm-states))
+        current-temp (max min-temperature
+                          (- starting-temperature (* temp-decay-per-step
+                                                     total-iterations)))
+        adjust-by-temp #(math/expt util/const-e (/ % current-temp))
+        adjusted-values (fmap adjust-by-temp arm-means)
+        softmaxes (fmap #(/ (adjust-by-temp %)
+                            (reduce + (vals adjusted-values)))
+                        arm-means)
+        best-arm (util/select-by-probability (if maximize?
+                                               softmaxes
+                                               (fmap #(- 1.0 %) softmaxes)))]
+    best-arm))
+
+(defmethod choose* ::spec/softmax
+  [storage-backend learner]
+  (let [arm-states (state/get-arm-states storage-backend
+                                         (::spec/experiment-name learner))
+        params (state/get-learner-params storage-backend
+                                         (::spec/experiment-name learner))]
+    (choose-softmax arm-states params)))
 
 (defmulti reward*
   "Updates the learner state with the given reward. See [[reward]] for details."

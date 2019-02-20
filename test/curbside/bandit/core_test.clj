@@ -159,7 +159,8 @@
   (match [algo params]
     [::spec/epsilon-greedy {::spec/epsilon e}] (str "epsilon_" e)
     [::spec/random _] "random"
-    [::spec/ucb1 _] "ucb1"))
+    [::spec/ucb1 _] "ucb1"
+    [::spec/softmax {::spec/temp-decay-per-step d}] (str "softmax_" d)))
 
 (defn generate-regret-csvs
   "For a given problem, generate CSVs showing the growth in regret over time
@@ -203,16 +204,29 @@
                                         0))
         random-ixes (future
                       (run-on-test-problem backend ::spec/random params prob 0))
+        softmax-params {::spec/starting-temperature 1.0
+                        ::spec/temp-decay-per-step (/ 1.0 100000)
+                        ::spec/min-temperature 0.01}
+        softmax-ixes (future
+                       (run-on-test-problem backend
+                                            ::spec/softmax
+                                            softmax-params
+                                            prob
+                                            0))
         ucb-regret (total-regret prob @ucb-ixes)
         ucb-reward (total-reward prob @ucb-ixes)
         eps-regret (total-regret prob @eps-ixes)
         eps-reward (total-reward prob @eps-ixes)
         random-regret (total-regret prob @random-ixes)
-        random-reward (total-reward prob @random-ixes)]
+        random-reward (total-reward prob @random-ixes)
+        softmax-regret (total-regret prob @softmax-ixes)
+        softmax-reward (total-reward prob @softmax-ixes)]
     (is (< ucb-regret eps-regret))
     (is (> ucb-reward eps-reward))
     (is (< eps-regret random-regret))
-    (is (> eps-reward random-reward))))
+    (is (> eps-reward random-reward))
+    (is (< softmax-regret random-regret))
+    (is (> softmax-reward random-reward))))
 
 (deftest performance-comparison-minimization
   (let [prob (stationary-problem 100000
@@ -241,15 +255,28 @@
                                            params
                                            prob
                                            0))
+        softmax-params {::spec/starting-temperature 1.0
+                        ::spec/temp-decay-per-step (/ 1.0 100000)
+                        ::spec/min-temperature 0.01}
+        softmax-ixes (future
+                       (run-on-test-problem backend
+                                            ::spec/softmax
+                                            softmax-params
+                                            prob
+                                            0))
         ucb-regret (total-regret prob @ucb-ixes)
         ucb-reward (total-reward prob @ucb-ixes)
         eps-regret (total-regret prob @eps-ixes)
         eps-reward (total-reward prob @eps-ixes)
         random-regret (total-regret prob @random-ixes)
-        random-reward (total-reward prob @random-ixes)]
+        random-reward (total-reward prob @random-ixes)
+        softmax-regret (total-regret prob @softmax-ixes)
+        softmax-reward (total-reward prob @softmax-ixes)]
     (testing "with minimization, larger regrets are still worse"
       (is (< ucb-regret eps-regret))
-      (is (< eps-regret random-regret)))
-    (testing "with minimization, rewards are lower"
+      (is (< eps-regret random-regret))
+      (is (< softmax-regret random-regret)))
+    (testing "with minimization, lower rewards are better"
       (is (< ucb-reward eps-reward))
-      (is (< eps-reward random-reward)))))
+      (is (< eps-reward random-reward))
+      (is (< softmax-reward random-reward)))))
