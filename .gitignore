@@ -3,3 +3,4 @@
 .nrepl-port
 pom.xml
 *.csv
+notebooks/.ipynb_checkpoints/*
