@@ -140,7 +140,10 @@
    exceptions. For our problems, a good choice of starting temperature is 1.0,
    with temp-decay-per-step set to `(/ 1.0 n)`, where n is equal to the number
    of rewards after which the learner will stop exploring, and min-temperature
-   is set to 0.01."
+   is set to 0.01.
+
+   See http://incompleteideas.net/book/ebook/node17.html for more information
+   about this algorithm."
   [arm-states {::spec/keys [starting-temperature
                             temp-decay-per-step
                             min-temperature
