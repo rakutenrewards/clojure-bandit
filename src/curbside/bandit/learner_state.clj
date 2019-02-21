@@ -18,10 +18,12 @@
 (defmulti record-reward
   "For a given experiment and arm, increment the total number of times the
    arm has been chosen, and add the given reward to the total reward the arm
-   has earned so far.
-   TODO: this is only sufficient for bandit algorithms that make decisions based
-   on average reward per arm. This is insufficient for Thompson sampling. To
-   fix, we need to dispatch on [(type backend) learner-algo]"
+   has earned so far. Uses Welford's Online Algorithm for improved numerical
+   stability and so that we can compute the variance of the rewards. See
+   https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_Online_algorithm
+
+   Note: rewards are scaled to be between 0 and 1.0 before being recorded. This
+   is needed for UCB1."
   (fn [backend experiment-name arm-name reward]
     (type backend)))
 
@@ -29,14 +31,19 @@
   [backend experiment-name arm-name reward]
   (swap! backend
          (fn [b]
-           (if-let [{:keys [total-reward n]} (get-in b [experiment-name
-                                                        :arm-states
-                                                        arm-name])]
+           (if-let [{:keys [mean-reward n mean-sq-dist]}
+                    (get-in b [experiment-name
+                               :arm-states
+                               arm-name])]
              (let [old-max-reward (get-in b [experiment-name :max-reward])
                    max-reward (max reward old-max-reward)
                    scaled-reward (/ reward max-reward)
-                   new-state {:total-reward (+ total-reward scaled-reward)
-                              :n (inc n)}]
+                   delta (- scaled-reward mean-reward)
+                   new-mean-reward (+ mean-reward (/ delta (inc n)))
+                   delta2 (- scaled-reward new-mean-reward)
+                   new-state {:n (inc n)
+                              :mean-reward new-mean-reward
+                              :mean-sq-dist (+ mean-sq-dist (* delta delta2))}]
                (cond-> b
                  (> max-reward old-max-reward)
                  (assoc-in [experiment-name :max-reward] max-reward)
@@ -58,7 +65,10 @@
   (fn [backend learner]
     (type backend)))
 
-(def default-arm-state {:total-reward 1.0 :n 1})
+(def default-arm-state {:total-reward 1.0
+                        :n 1
+                        :mean-reward 1.0
+                        :mean-sq-dist 10.0})
 
 (defmethod init-experiment clojure.lang.Atom
   [backend {::spec/keys [learner-algo algo-params

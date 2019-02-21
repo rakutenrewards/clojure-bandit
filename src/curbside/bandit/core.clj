@@ -57,7 +57,8 @@
    [clojure.math.numeric-tower :as math]
    [curbside.bandit.learner-state :as state]
    [curbside.bandit.spec :as spec]
-   [curbside.bandit.util :as util]))
+   [curbside.bandit.util :as util]
+   [kixi.stats.distribution :as stats]))
 
 (defmulti choose*
   "Chooses an ::spec/arm-name for the given learner. See documentation of
@@ -68,9 +69,12 @@
 (defn arm-states->arm-means
   "Computes the mean reward of each arm."
   [arm-states]
-  (into {}
-        (for [[arm-name {:keys [total-reward n]}] arm-states]
-          [arm-name (/ total-reward n)])))
+  (fmap :mean-reward arm-states))
+
+(defn arm-states->arm-variances
+  "Computes the variance of the reward of each arm."
+  [arm-states]
+  (fmap #(/ (:mean-sq-dist %) (:n %)) arm-states))
 
 (defn choose-epsilon-greedy
   "Chooses an arm according to the epsilon-greedy algorithm -- chooses the
@@ -102,14 +106,12 @@
    exploration term."
   [arm-states {::spec/keys [maximize?] :as _params}]
   {:pre [(not (nil? maximize?))]}
-  (let [arm-means (arm-states->arm-means arm-states)
-        total-iterations (reduce + (map (comp :n val) arm-states))
+  (let [total-iterations (reduce + (map (comp :n val) arm-states))
         ucbs (into {}
-                   (for [[arm-name {:keys [total-reward n]}] arm-states]
-                     (let [mean (/ total-reward n)
-                           const (Math/sqrt (/ (* 2 (Math/log total-iterations))
+                   (for [[arm-name {:keys [mean-reward n]}] arm-states]
+                     (let [const (Math/sqrt (/ (* 2 (Math/log total-iterations))
                                                n))]
-                       [arm-name (+ mean const)])))
+                       [arm-name (+ mean-reward const)])))
         best-key (if maximize? max-key min-key)
         best-arm (key (apply best-key val ucbs))]
     best-arm))
