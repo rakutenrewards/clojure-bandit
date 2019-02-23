@@ -150,6 +150,8 @@
                             temp-decay-per-step
                             min-temperature
                             maximize?]}]
+  {:pre [starting-temperature temp-decay-per-step min-temperature
+         (boolean? maximize?)]}
   (let [arm-means (arm-states->arm-means arm-states)
         total-iterations (reduce + (map (comp :n val) arm-states))
         current-temp (max min-temperature
@@ -216,10 +218,10 @@
    ```
    (choose {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"})
    ```"
-  [storage-backend learner]
-  {:pre [(spec/check ::spec/learner-minimal-info learner)]}
+  [storage-backend learner-info]
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
   {:post [string?]}
-  (choose* storage-backend learner))
+  (choose* storage-backend learner-info))
 
 (defn reward
   "Gives a learner the reward for a particular arm. Example invocation:
@@ -227,10 +229,10 @@
    (reward {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
             {::spec/reward-value 12.5 ::spec/arm-name \"arm1\"})
    ```"
-  [storage-backend learner reward]
-  {:pre [(spec/check ::spec/learner-minimal-info learner)
+  [storage-backend learner-info reward]
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)
          (spec/check ::spec/reward reward)]}
-  (reward* storage-backend learner reward))
+  (reward* storage-backend learner-info reward))
 
 (defn init
   "Initializes the state of a learner. Example invocation:
@@ -251,10 +253,10 @@
    (create-arm {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
                \"cool-new-arm\")
    ```"
-  [storage-backend learner arm-name]
-  {:pre [(spec/check ::spec/learner-minimal-info learner)
+  [storage-backend learner-info arm-name]
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)
          (spec/check ::spec/arm-name arm-name)]}
-  (create-arm* storage-backend learner arm-name))
+  (create-arm* storage-backend learner-info arm-name))
 
 (defn delete-arm
   "Removes an arm from the set of arms the learner can return from `choose`
@@ -263,7 +265,7 @@
    (delete-arm {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
                \"cool-new-arm\")
    ```"
-  [storage-backend learner arm-name]
-  {:pre [(spec/check ::spec/learner-minimal-info learner)
+  [storage-backend learner-info arm-name]
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)
          (spec/check ::spec/arm-name arm-name)]}
-  (delete-arm* storage-backend learner arm-name))
+  (delete-arm* storage-backend learner-info arm-name))
