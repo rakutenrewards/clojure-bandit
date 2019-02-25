@@ -19,7 +19,13 @@
 (spec/def ::common-params
   (spec/keys :req [::maximize?]))
 
-(spec/def ::learner-algo #{::epsilon-greedy ::ucb1 ::random})
+(spec/def ::learner-algo #{::epsilon-greedy ::ucb1 ::random ::softmax})
+
+(spec/def ::starting-temperature ::finite-double)
+
+(spec/def ::temp-decay-per-step ::finite-double)
+
+(spec/def ::min-temperature ::finite-double)
 
 (spec/def ::epsilon float?)
 
@@ -36,11 +42,19 @@
   (spec/and ::common-params
             #(= ::random (::learner-algo %))))
 
+(spec/def ::softmax-params
+  (spec/and ::common-params
+            (spec/keys :req [::starting-temperature
+                             ::temp-decay-per-step
+                             ::min-temperature])
+            #(= ::softmax (::learner-algo %))))
+
 (spec/def ::algo-params
   (spec/and (spec/keys :req [::learner-algo])
             (spec/or :epsilon-greedy ::epsilon-greedy-params
                      :ucb1 ::ucb1-params
-                     :random ::random-params)))
+                     :random ::random-params
+                     :softmax ::softmax-params)))
 
 (spec/def ::arm-name string?)
 
