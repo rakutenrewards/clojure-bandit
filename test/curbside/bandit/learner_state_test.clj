@@ -2,7 +2,16 @@
   (:require
    [curbside.bandit.learner-state :as state]
    [curbside.bandit.spec :as spec]
-   [clojure.test :refer :all]))
+   [clojure.test :refer :all]
+   [taoensso.carmine :as car :refer (wcar)]))
+
+(def redis-conn {:pool {} :spec {:uri "redis://localhost:6379/13"}})
+
+(use-fixtures :each
+  (fn [test]
+    (wcar redis-conn
+          (car/flushdb))
+    (test)))
 
 (def test-learner {::spec/learner-algo ::spec/epsilon-greedy
                    ::spec/algo-params {::spec/epsilon 0.05
@@ -49,4 +58,5 @@
               "arm2" {:mean-reward 0.75 :n 2 :mean-sq-dist 10.125}} arm-states)))))
 
 (deftest test-arm-crud
-  (test-arm-crud-backend (atom {})))
+  (test-arm-crud-backend (atom {}))
+  (test-arm-crud-backend redis-conn))

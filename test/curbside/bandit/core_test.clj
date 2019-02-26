@@ -6,9 +6,18 @@
    [clojure.test :refer :all]
    [curbside.bandit.core :as bandit]
    [curbside.bandit.spec :as spec]
-   [kixi.stats.distribution :refer [draw sample normal]])
+   [kixi.stats.distribution :refer [draw sample normal]]
+   [taoensso.carmine :as car :refer (wcar)])
   (:import
    (java.util UUID)))
+
+(def redis-conn {:pool {} :spec {:uri "redis://localhost:6379/13"}})
+
+(use-fixtures :each
+  (fn [test]
+    (wcar redis-conn
+          (car/flushdb))
+    (test)))
 
 (defn stationary-problem
   "Generates n samples for the given distributions, in the format expected
@@ -90,7 +99,12 @@
 
 (defn problem-arm-names
   [problem]
-  (mapv str (range (inc (count (first problem))))))
+  (->> problem
+       :time-series
+       first
+       count
+       range
+       (mapv str)))
 
 (defn run-on-test-problem
   "Runs the given learner on a problem, with rewards delayed by the given
@@ -152,7 +166,7 @@
 (defn cumulative-total-regret
   [problem chosen-indices]
   (map (comp #(Math/abs %) -) (cumulative-optimal-reward problem)
-                              (cumulative-reward problem chosen-indices)))
+       (cumulative-reward problem chosen-indices)))
 
 (defn algo-param->csv-column-name
   [algo params]
@@ -185,13 +199,13 @@
       (csv/write-csv writer [column-names])
       (csv/write-csv writer (apply map (partial conj []) regrets)))))
 
-(deftest performance-comparison
+(defn performance-comparison
+  [backend]
   (let [prob (stationary-problem 100000
                                  [(normal {:mu 200.7 :sd 2.0})
                                   (normal {:mu 15.1 :sd 1.3})
                                   (normal {:mu 1.3 :sd 2.0})]
                                  :maximize? true)
-        backend (atom {})
         params {::spec/maximize? true}
         ucb-ixes (future
                    (run-on-test-problem backend ::spec/ucb1 params prob 0))
@@ -206,7 +220,8 @@
                       (run-on-test-problem backend ::spec/random params prob 0))
         softmax-params {::spec/starting-temperature 1.0
                         ::spec/temp-decay-per-step (/ 1.0 100000)
-                        ::spec/min-temperature 0.01}
+                        ::spec/min-temperature 0.01
+                        ::spec/maximize? true}
         softmax-ixes (future
                        (run-on-test-problem backend
                                             ::spec/softmax
@@ -228,13 +243,18 @@
     (is (< softmax-regret random-regret))
     (is (> softmax-reward random-reward))))
 
-(deftest performance-comparison-minimization
+(deftest test-performance-comparison
+  (testing "When maximizing, more sophisticated algorithms perform better"
+    (performance-comparison (atom {}))
+    (performance-comparison redis-conn)))
+
+(defn performance-comparison-minimization
+  [backend]
   (let [prob (stationary-problem 100000
                                  [(normal {:mu 200.7 :sd 2.0})
                                   (normal {:mu 15.1 :sd 1.3})
                                   (normal {:mu 1.3 :sd 2.0})]
                                  :maximize? false)
-        backend (atom {})
         params {::spec/maximize? false}
         ucb-ixes (future
                    (run-on-test-problem backend
@@ -257,7 +277,8 @@
                                            0))
         softmax-params {::spec/starting-temperature 1.0
                         ::spec/temp-decay-per-step (/ 1.0 100000)
-                        ::spec/min-temperature 0.01}
+                        ::spec/min-temperature 0.01
+                        ::spec/maximize? false}
         softmax-ixes (future
                        (run-on-test-problem backend
                                             ::spec/softmax
@@ -280,3 +301,15 @@
       (is (< ucb-reward eps-reward))
       (is (< eps-reward random-reward))
       (is (< softmax-reward random-reward)))))
+
+(deftest test-performance-comparison-minimization
+  (testing "When minimizing, more sophisticated algorithms perform better"
+    (performance-comparison-minimization (atom {}))
+    (performance-comparison-minimization redis-conn)))
+
+(deftest test-ucb-deterministic-wrt-backend
+  (testing "UCB gives same results regardless of backend"
+    (let [prob (k-armed-normal-problem 2 100)
+          atom-ixes (run-on-test-problem (atom {}) ::spec/ucb1 {} prob 0)
+          redis-ixes (run-on-test-problem redis-conn ::spec/ucb1 {} prob 0)]
+      (is (= atom-ixes redis-ixes)))))

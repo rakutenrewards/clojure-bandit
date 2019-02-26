@@ -1,4 +1,5 @@
-(ns curbside.bandit.util)
+(ns curbside.bandit.stats
+  "Probability and statistics helpers.")
 
 (def const-e 2.71828)
 
