@@ -10,6 +10,12 @@ For now, this is just a library. In the future, we will add a web service wrappe
 
 See the documentation in the `curbside.bandit.core` namespace.
 
+### Available state storage providers
+
+The library provides support for using either `(atom {})` or a Carmine Redis connection to store state. Obviously, you must use Redis if you want to persist learner state, put a service behind a load balancer, etc. See the tests for examples of using both backends.
+
+The Redis backend can handle roughly ten thousand operations (`choose` and `reward`) per second. To scale further, we would need to switch to Redis Cluster, or manually distribute the learners across separate Redis servers. The atom backend can handle about ten times that.
+
 ### Available algorithms
 
 #### Epsilon-greedy
