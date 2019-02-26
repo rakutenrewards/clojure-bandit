@@ -5,9 +5,10 @@
    a Redis implementation using Carmine."
   (:require
    [clojure.algo.generic.functor :refer [fmap]]
+   [curbside.bandit.ext :as ext]
    [curbside.bandit.spec :as spec]
-   [curbside.bandit.util :as util]
-   [taoensso.carmine :as car :refer (wcar)]))
+   [curbside.bandit.redis :as redis]
+   [taoensso.carmine :as car :refer [wcar]]))
 
 (def ^:private carmine-conn-type
   "Alias for the type of Carmine's connection specification maps, to make
@@ -20,33 +21,25 @@
   "For a given experiment, creates the key containing the names of all arms for
    the experiment. This is a Redis set."
   [experiment-name]
-  (util/fmt-key "bandit:experiment:%s:arm-names" experiment-name))
+  (redis/fmt-key "bandit:experiment:%s:arm-names" experiment-name))
 
 (defn- arm-state-key
   "For a given experiment and arm name, creates the key containing the state of
    the arm. This is a Redis hashmap."
   [experiment-name arm-name]
-  (util/fmt-key "bandit:experiment:%s:arm-states:%s" experiment-name arm-name))
+  (redis/fmt-key "bandit:experiment:%s:arm-states:%s" experiment-name arm-name))
 
 (defn- max-reward-key
   "For a given experiment name, creates the key containing the max reward value
    ever seen for the given experiment. Stored as a plain Redis key/value."
   [experiment-name]
-  (util/fmt-key "bandit:experiment:%s:max-reward" experiment-name))
+  (redis/fmt-key "bandit:experiment:%s:max-reward" experiment-name))
 
 (defn- params-key
   "For a given experiment name, creates the key to contain the parameters for
    that experiment. Stored as a Redis hashmap."
   [experiment-name]
-  (util/fmt-key "bandit:experiment:%s:params" experiment-name))
-
-(defn- ->redis-map
-  "Convert the raw result of an `hgetall` command to a map."
-  [x]
-  (->> x
-       (partition 2)
-       (map #(into [] %))
-       (into {})))
+  (redis/fmt-key "bandit:experiment:%s:params" experiment-name))
 
 (defmulti get-arm-states
   "Gets the state of all arms for the given experiment. The shape of the
@@ -64,13 +57,13 @@
   (wcar conn (car/smembers (arm-names-key experiment-name))))
 
 (defn redis-get-arm-state
- [conn experiment-name arm-name]
- (let [k (arm-state-key experiment-name arm-name)]
-   (->> (wcar conn (car/hgetall k))
-        ->redis-map
-        (fmap util/parse-double)
-        util/keywordify-keys
-        ((fn [x] (update x :n int))))))
+  [conn experiment-name arm-name]
+  (let [k (arm-state-key experiment-name arm-name)]
+    (->> (wcar conn (car/hgetall k))
+         redis/->redis-map
+         (fmap ext/parse-double)
+         ext/keywordify-keys
+         ((fn [x] (update x :n int))))))
 
 (defmethod get-arm-states carmine-conn-type
   [backend experiment-name]
@@ -120,8 +113,8 @@
                    [new-max-reward new-state]
                    (record-reward* reward max-reward old-arm-state)]
                (-> b
-                 (assoc-in [experiment-name :max-reward] new-max-reward)
-                 (assoc-in [experiment-name :arm-states arm-name] new-state)))))))
+                   (assoc-in [experiment-name :max-reward] new-max-reward)
+                   (assoc-in [experiment-name :arm-states arm-name] new-state)))))))
 
 ;; Note: this uses a lua script to ensure that all the steps of Welford's
 ;; algorithm are performed atomically.
@@ -163,15 +156,15 @@
 (defmethod get-learner-params carmine-conn-type
   [conn experiment-name]
   (-> (wcar conn (car/hgetall (params-key experiment-name)))
-      (->redis-map)
-      (->> (util/keywordify-keys "curbside.bandit.spec"))
-      (util/update-in-if-contains [::spec/epsilon] util/parse-double)
-      (util/update-in-if-contains [::spec/starting-temperature]
-                                  util/parse-double)
-      (util/update-in-if-contains [::spec/temp-decay-per-step]
-                                  util/parse-double)
-      (util/update-in-if-contains [::spec/min-temperature]
-                                  util/parse-double)))
+      (redis/->redis-map)
+      (->> (ext/keywordify-keys "curbside.bandit.spec"))
+      (ext/update-in-if-contains [::spec/epsilon] ext/parse-double)
+      (ext/update-in-if-contains [::spec/starting-temperature]
+                                 ext/parse-double)
+      (ext/update-in-if-contains [::spec/temp-decay-per-step]
+                                 ext/parse-double)
+      (ext/update-in-if-contains [::spec/min-temperature]
+                                 ext/parse-double)))
 
 (defmulti create-arm
   "Adds an arm to an existing experiment."
@@ -194,7 +187,7 @@
   "Initializes a new arm in Redis for a given experiment."
   [experiment-name arm-name]
   (car/hmset* (arm-state-key experiment-name arm-name)
-              (util/stringify-keys default-arm-state)))
+              (ext/stringify-keys default-arm-state)))
 
 (defmethod create-arm carmine-conn-type
   [backend {::spec/keys [experiment-name]} arm-name]
@@ -227,7 +220,7 @@
   (wcar conn
         (car/multi)
         (car/hmset* (params-key experiment-name)
-                    (util/stringify-keys algo-params))
+                    (ext/stringify-keys algo-params))
         (car/set (max-reward-key experiment-name) 1.0)
         (apply car/sadd (arm-names-key experiment-name) arm-names)
         (dorun (map #(redis-init-arm experiment-name %) arm-names))

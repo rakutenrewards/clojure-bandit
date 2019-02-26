@@ -166,7 +166,7 @@
 (defn cumulative-total-regret
   [problem chosen-indices]
   (map (comp #(Math/abs %) -) (cumulative-optimal-reward problem)
-                              (cumulative-reward problem chosen-indices)))
+       (cumulative-reward problem chosen-indices)))
 
 (defn algo-param->csv-column-name
   [algo params]

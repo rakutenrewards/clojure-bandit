@@ -57,8 +57,7 @@
    [clojure.math.numeric-tower :as math]
    [curbside.bandit.learner-state :as state]
    [curbside.bandit.spec :as spec]
-   [curbside.bandit.util :as util]
-   [kixi.stats.distribution :as stats]))
+   [curbside.bandit.stats :as stats]))
 
 (defmulti choose*
   "Chooses an ::spec/arm-name for the given learner. See documentation of
@@ -157,14 +156,14 @@
         current-temp (max min-temperature
                           (- starting-temperature (* temp-decay-per-step
                                                      total-iterations)))
-        adjust-by-temp #(math/expt util/const-e (/ % current-temp))
+        adjust-by-temp #(math/expt stats/const-e (/ % current-temp))
         adjusted-values (fmap adjust-by-temp arm-means)
         softmaxes (fmap #(/ (adjust-by-temp %)
                             (reduce + (vals adjusted-values)))
                         arm-means)
-        best-arm (util/select-by-probability (if maximize?
-                                               softmaxes
-                                               (fmap #(- 1.0 %) softmaxes)))]
+        best-arm (stats/select-by-probability (if maximize?
+                                                softmaxes
+                                                (fmap #(- 1.0 %) softmaxes)))]
     best-arm))
 
 (defmethod choose* ::spec/softmax
