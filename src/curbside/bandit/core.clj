@@ -145,13 +145,17 @@
     (assert num-unrewarded)
     (assert call-count)
     (cond
+      ;; If we haven't received any rewards yet, round-robin between arms.
+      ;; This helps us converge faster when rewards are delayed.
       (= num-unrewarded k)
       (choose-round-robin unrewarded-arms call-count)
 
+      ;; If a new arm has been added, choose it 1 out of k times.
       (and (> num-unrewarded 0)
            (< (mod call-count k) num-unrewarded))
       (choose-round-robin unrewarded-arms call-count)
 
+      ;; Otherwise, use standard UCB1 behavior.
       :else
       (choose-ucb1 arm-states params call-count))))
 
