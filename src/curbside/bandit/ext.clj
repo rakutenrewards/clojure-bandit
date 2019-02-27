@@ -31,3 +31,7 @@
 (defn parse-double
   [x]
   (Double/parseDouble x))
+
+(defn parse-int
+  [x]
+  (Integer/parseInt x))

@@ -55,7 +55,7 @@
     (state/record-reward backend "test-learner" "arm2" 0.5)
     (let [arm-states (state/get-arm-states backend "test-learner")]
       (is (= {"arm1" state/default-arm-state
-              "arm2" {:mean-reward 0.75 :n 2 :mean-sq-dist 10.125}} arm-states)))))
+              "arm2" {:mean-reward 0.25 :n 2 :mean-sq-dist 0.125}} arm-states)))))
 
 (deftest test-arm-crud
   (test-arm-crud-backend (atom {}))
