@@ -41,6 +41,12 @@
   [experiment-name]
   (redis/fmt-key "bandit:experiment:%s:params" experiment-name))
 
+(defn- choose-count-key
+  "For a given experiment name, creates the key counting the number of times
+   `choose` has been called on the given experiment."
+  [experiment-name]
+  (redis/fmt-key "bandit:experiment:%s:choose-count" experiment-name))
+
 (defmulti get-arm-states
   "Gets the state of all arms for the given experiment. The shape of the
    state structure depends on the learner-algorithm."
@@ -114,7 +120,8 @@
                    (record-reward* reward max-reward old-arm-state)]
                (-> b
                    (assoc-in [experiment-name :max-reward] new-max-reward)
-                   (assoc-in [experiment-name :arm-states arm-name] new-state)))))))
+                   (assoc-in [experiment-name :arm-states arm-name] new-state)))
+             b))))
 
 ;; Note: this uses a lua script to ensure that all the steps of Welford's
 ;; algorithm are performed atomically.
@@ -172,8 +179,8 @@
     (type backend)))
 
 (def default-arm-state {:n 1
-                        :mean-reward 1.0
-                        :mean-sq-dist 10.0})
+                        :mean-reward 0.0
+                        :mean-sq-dist 0.0})
 
 (defmethod create-arm clojure.lang.Atom
   [backend {::spec/keys [experiment-name]} arm-name]
@@ -211,7 +218,8 @@
              (-> b
                  (assoc-in [experiment-name :params] algo-params)
                  (assoc-in [experiment-name :arm-states] arm-states)
-                 (assoc-in [experiment-name :max-reward] 1.0))))))
+                 (assoc-in [experiment-name :max-reward] 1.0)
+                 (assoc-in [experiment-name :choose-count] 0))))))
 
 (defmethod init-experiment carmine-conn-type
   [conn {::spec/keys [learner-algo algo-params
@@ -224,6 +232,7 @@
         (car/set (max-reward-key experiment-name) 1.0)
         (apply car/sadd (arm-names-key experiment-name) arm-names)
         (dorun (map #(redis-init-arm experiment-name %) arm-names))
+        (car/set (choose-count-key experiment-name) 0)
         (car/exec)))
 
 (defmulti delete-arm
@@ -244,3 +253,19 @@
         (car/srem (arm-names-key experiment-name) arm-name)
         (car/del (arm-state-key experiment-name arm-name))
         (car/exec)))
+
+(defmulti incr-choose-calls
+  "Increments a counter which represents the number of times `choose` has
+   been called on the given experiment name. Returns the new count, after
+   it has been incremented."
+  (fn [backend experiment-name]
+    (type backend)))
+
+(defmethod incr-choose-calls clojure.lang.Atom
+  [backend experiment-name]
+  (let [path [experiment-name :choose-count]]
+    (get-in (swap! backend update-in path inc) path)))
+
+(defmethod incr-choose-calls carmine-conn-type
+  [conn experiment-name]
+  (wcar conn (car/incr (choose-count-key experiment-name))))

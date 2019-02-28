@@ -75,6 +75,14 @@
   [arm-states]
   (fmap #(/ (:mean-sq-dist %) (:n %)) arm-states))
 
+(defn arm-states->unrewarded-arm-names
+  "Returns all arm names that have not yet received a reward."
+  [arm-states]
+  (sort
+   (for [[arm-name {:keys [n]}] arm-states
+         :when (= 1 n)]
+     arm-name)))
+
 (defn choose-epsilon-greedy
   "Chooses an arm according to the epsilon-greedy algorithm -- chooses the
    best arm with probability (1 - epsilon). Otherwise, chooses a random arm."
@@ -96,14 +104,21 @@
                                          (::spec/experiment-name learner))
         params (state/get-learner-params storage-backend
                                          (::spec/experiment-name learner))]
+    (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
     (choose-epsilon-greedy (arm-states->arm-means arm-states) params)))
+
+(defn choose-round-robin
+  "Chooses an arm-name in round-robin order."
+  [arm-names call-count]
+  (let [k (count arm-names)]
+    (nth arm-names (mod call-count k))))
 
 (defn choose-ucb1
   "Chooses an arm using the upper confidence bound algorithm. This chooses the
    arm that maximizes the expected reward, where the expected reward of the arm
    is defined as the historical mean reward of the arm, plus a constant
    exploration term."
-  [arm-states {::spec/keys [maximize?] :as _params}]
+  [arm-states {::spec/keys [maximize?] :as _params} call-count]
   {:pre [(not (nil? maximize?))]}
   (let [total-iterations (reduce + (map (comp :n val) arm-states))
         ucbs (into {}
@@ -120,13 +135,35 @@
   (let [arm-states (state/get-arm-states storage-backend
                                          (::spec/experiment-name learner))
         params (state/get-learner-params storage-backend
-                                         (::spec/experiment-name learner))]
-    (choose-ucb1 arm-states params)))
+                                         (::spec/experiment-name learner))
+        call-count (state/incr-choose-calls storage-backend
+                                            (::spec/experiment-name learner))
+        unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
+        k (count arm-states)
+        num-unrewarded (count unrewarded-arms)]
+    (assert k)
+    (assert num-unrewarded)
+    (assert call-count)
+    (cond
+      ;; If we haven't received any rewards yet, round-robin between arms.
+      ;; This helps us converge faster when rewards are delayed.
+      (= num-unrewarded k)
+      (choose-round-robin unrewarded-arms call-count)
+
+      ;; If a new arm has been added, choose it 1 out of k times.
+      (and (> num-unrewarded 0)
+           (< (mod call-count k) num-unrewarded))
+      (choose-round-robin unrewarded-arms call-count)
+
+      ;; Otherwise, use standard UCB1 behavior.
+      :else
+      (choose-ucb1 arm-states params call-count))))
 
 (defmethod choose* ::spec/random
   [storage-backend learner]
   (let [arm-states (state/get-arm-states storage-backend
                                          (::spec/experiment-name learner))]
+    (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
     (nth (keys arm-states) (rand-int (count arm-states)))))
 
 (defn choose-softmax
@@ -172,6 +209,7 @@
                                          (::spec/experiment-name learner))
         params (state/get-learner-params storage-backend
                                          (::spec/experiment-name learner))]
+    (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
     (choose-softmax arm-states params)))
 
 (defmulti reward*
