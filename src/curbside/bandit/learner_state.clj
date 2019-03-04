@@ -95,15 +95,13 @@
 
 (defn record-reward*
   "Updates an arm's reward state using Welford's Algorithm."
-  [reward max-reward {:keys [mean-reward n mean-sq-dist] :as old-arm-state}]
+  [reward max-reward {:keys [mean-reward n] :as old-arm-state}]
   (let [new-max-reward (max reward max-reward)
         scaled-reward (/ reward new-max-reward)
         delta (- scaled-reward mean-reward)
         new-mean-reward (+ mean-reward (/ delta (inc n)))
-        delta2 (- scaled-reward new-mean-reward)
         new-state {:n (inc n)
-                   :mean-reward new-mean-reward
-                   :mean-sq-dist (+ mean-sq-dist (* delta delta2))}]
+                   :mean-reward new-mean-reward}]
     [new-max-reward new-state]))
 
 (defmethod record-reward clojure.lang.Atom
@@ -121,35 +119,144 @@
                (-> b
                    (assoc-in [experiment-name :max-reward] new-max-reward)
                    (assoc-in [experiment-name :arm-states arm-name] new-state)))
-             b))))
+             (do
+               ;; TODO: log error or throw exception if arm not found?
+               b)))))
 
 ;; Note: this uses a lua script to ensure that all the steps of Welford's
 ;; algorithm are performed atomically.
 (defmethod record-reward carmine-conn-type
   [backend experiment-name arm-name reward]
+  {:pre [backend experiment-name arm-name reward]}
   (let [arm-key (arm-state-key experiment-name arm-name)
         max-reward-key (max-reward-key experiment-name)]
     (wcar backend
           (car/lua
            "local max_reward = redis.call('get',_:max-reward-key)
             local mean_reward = redis.call ('hget',_:arm-key,'mean-reward')
-            local mean_sq_dist = redis.call ('hget',_:arm-key,'mean-sq-dist')
             local new_n = 1 + redis.call ('hget',_:arm-key,'n')
 
             local new_max_reward = math.max(_:reward,max_reward)
             local scaled_reward = _:reward/new_max_reward
             local delta = scaled_reward - mean_reward
             local new_mean_reward = mean_reward + (delta / new_n)
-            local delta2 = scaled_reward - new_mean_reward
-            local new_mean_sq_dist = mean_sq_dist + delta * delta2
 
             redis.call('set',_:max-reward-key,new_max_reward)
             redis.call('hset',_:arm-key,'n',new_n)
-            redis.call('hset',_:arm-key,'mean-reward',new_mean_reward)
-            redis.call('hset',_:arm-key,'mean-sq-dist',new_mean_sq_dist)"
+            redis.call('hset',_:arm-key,'mean-reward',new_mean_reward)"
            {:arm-key arm-key
             :max-reward-key max-reward-key}
            {:reward reward}))))
+
+(defmulti bulk-reward
+  "For a given experiment and arm, increment the total number of times the
+   arm has been chosen, and combine the existing mean and variance data for this
+   arm with the supplied values. This uses an extension of Welford's algorithm
+   that allows statistics for a subset of the rewards to be computed by the
+   client, so that we don't need to call Redis n times. See
+   https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+
+   Note: rewards are scaled to be between 0 and 1.0 before being recorded. This
+   is needed for UCB1.
+
+   Note: In some cases (especially when large new numbers appear mid-stream),
+   this will have different results than calling reward on each incoming reward
+   one-by-one. This is because bulk rewards are scaled by the highest number in
+   the batch, rather than by each new highest number as it comes in. For
+   example, if we have four rewards
+
+   [1 3 2 5]
+
+   if we call bulk-reward, the mean reward before scaling will be 2.75. We scale
+   it by the biggest number we know of yet (5), and get a scaled mean reward of
+   0.55.
+
+   However, if we call reward(1), reward(3), reward(2), reward(5), we can only
+   scale by the highest number we have seen so far.
+
+   reward(1) will be scaled by 1 for a reward of 1.0
+   reward(3) will be scaled relative to 3 for a reward of 1.0
+   reward(2) will be scaled relative to 3 for a reward of 0.666
+   reward(5) will be scaled relative to 5 for a reward of 1.0
+   and so the total average stored in the arm after these calls will be 0.9165.
+
+   This seems like a big difference, but it tends to even out as the number of
+   rewards increases. Here is an informal argument:
+
+   After an infinite number of steps, our probability
+   of having seen the global maximum reward value (assuming rewards are bounded)
+   is 1.0. Furthermore, there will be infinitely many additional rewards after
+   we've seen the global maximum, so we are guaranteed to eventually converge
+   on the true scaled mean."
+  (fn [backend experiment-name arm-name reward]
+    (type backend)))
+
+(defn- bulk-reward*
+  [{::spec/keys [bulk-reward-mean
+                 bulk-reward-count
+                 bulk-reward-max]
+    :as bulk-reward}
+   old-max-reward
+   {old-mean-reward :mean-reward
+    old-n :n
+    :as old-arm-state}]
+  (let [new-n (+ old-n bulk-reward-count)
+        new-max-reward (max old-max-reward bulk-reward-max)
+        scaled-bulk-reward-mean (/ bulk-reward-mean new-max-reward)
+        delta (- scaled-bulk-reward-mean old-mean-reward)
+        new-mean-reward (+ old-mean-reward
+                           (* delta (/ bulk-reward-count new-n)))
+        new-state {:n new-n
+                   :mean-reward new-mean-reward}]
+    [new-max-reward new-state]))
+
+(defmethod bulk-reward clojure.lang.Atom
+  [backend experiment-name arm-name bulk-reward]
+  {:pre [backend experiment-name arm-name bulk-reward]}
+  (swap! backend
+         (fn [b]
+           (if-let [old-arm-state
+                    (get-in b [experiment-name
+                               :arm-states
+                               arm-name])]
+             (let [max-reward
+                   (get-in b [experiment-name :max-reward])
+                   [new-max-reward new-state]
+                   (bulk-reward* bulk-reward max-reward old-arm-state)]
+               (-> b
+                   (assoc-in [experiment-name :max-reward] new-max-reward)
+                   (assoc-in [experiment-name :arm-states arm-name] new-state)))
+             (do
+               ;; TODO: log error or throw exception?
+               b)))))
+
+(defmethod bulk-reward carmine-conn-type
+  [backend experiment-name arm-name {::spec/keys [bulk-reward-mean
+                                                  bulk-reward-count
+                                                  bulk-reward-max]
+                                     :as bulk-reward}]
+  {:pre [backend experiment-name arm-name bulk-reward]}
+  (let [arm-key (arm-state-key experiment-name arm-name)
+        max-reward-key (max-reward-key experiment-name)]
+    (wcar backend
+          (car/lua
+           "local max_reward = redis.call('get',_:max_reward_key)
+            local mean_reward = redis.call('hget',_:arm_key,'mean-reward')
+            local new_n = _:bulk_reward_count + redis.call('hget',_:arm_key,'n')
+
+            local new_max_reward = math.max(_:bulk_reward_max, max_reward)
+            local scaled_bulk_reward_mean = _:bulk_reward_mean / new_max_reward
+            local delta = scaled_bulk_reward_mean - mean_reward
+            local new_mean_reward = mean_reward + (delta * (_:bulk_reward_count / new_n))
+
+            redis.call('set',_:max_reward_key,new_max_reward)
+            redis.call('hset',_:arm_key,'n',new_n)
+            redis.call('hset',_:arm_key,'mean-reward',new_mean_reward)"
+           {:arm_key arm-key
+            :max_reward_key max-reward-key}
+           {:bulk_reward_count bulk-reward-count
+            :bulk_reward_max bulk-reward-max
+            :bulk_reward_mean bulk-reward-mean}))))
 
 (defmulti get-learner-params
   "Get the parameters of the learner."
@@ -179,8 +286,7 @@
     (type backend)))
 
 (def default-arm-state {:n 1
-                        :mean-reward 0.0
-                        :mean-sq-dist 0.0})
+                        :mean-reward 0.0})
 
 (defmethod create-arm clojure.lang.Atom
   [backend {::spec/keys [experiment-name]} arm-name]

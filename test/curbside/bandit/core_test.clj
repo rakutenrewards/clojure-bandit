@@ -3,8 +3,10 @@
    [clojure.data.csv :as csv]
    [clojure.core.match :refer [match]]
    [clojure.java.io :as io]
+   [clojure.math.numeric-tower :refer [abs]]
    [clojure.test :refer :all]
    [curbside.bandit.core :as bandit]
+   [curbside.bandit.ext :as ext]
    [curbside.bandit.spec :as spec]
    [kixi.stats.distribution :refer [draw sample normal]]
    [taoensso.carmine :as car :refer (wcar)])
@@ -13,11 +15,29 @@
 
 (def redis-conn {:pool {} :spec {:uri "redis://localhost:6379/13"}})
 
+(defn approx-eq
+  [x y eps]
+  (< (abs (- x y)) eps))
+
 (use-fixtures :each
   (fn [test]
     (wcar redis-conn
           (car/flushdb))
     (test)))
+
+(defn bulkify-rewards
+  "Given a collection of ::spec/reward, return one ::spec/bulk-reward. Used to
+   test that bulk-reward and reward yield approximately the same results.
+   Assumes that all input rewards are for the same arm!"
+  [rewards]
+  (let [n (count rewards)
+        reward-vals (map ::spec/reward-value rewards)
+        mean (/ (reduce + reward-vals) n)
+        max (apply max reward-vals)]
+    {::spec/bulk-reward-mean mean
+     ::spec/bulk-reward-count n
+     ::spec/bulk-reward-max max
+     ::spec/arm-name (::spec/arm-name (first rewards))}))
 
 (defn stationary-problem
   "Generates n samples for the given distributions, in the format expected
@@ -112,9 +132,12 @@
    step.
 
    Takes two optional maps from integer timestep to string arm id, specifying
-   when to add or delete arms from the problem."
+   when to add or delete arms from the problem.
+
+   Also takes an optional `bulk-rewards?` boolean. If true, delayed rewards will
+   be updated in bulk by the bulk-reward API."
   [backend learner-algo algo-params problem reward-delay
-   & {:keys [arm-deletion-times arm-addition-times]}]
+   & {:keys [arm-deletion-times arm-addition-times bulk-rewards?]}]
   (let [learner {::spec/learner-algo learner-algo
                  ::spec/algo-params (assoc algo-params
                                            ::spec/maximize?
@@ -143,10 +166,26 @@
                                ::spec/arm-name chosen-arm}
                 new-queue (conj reward-queue chosen-reward)
                 new-result (conj result chosen-idx)]
-            (if (= remaining-delay 0)
+            (cond
+
+              (and (not bulk-rewards?) (= remaining-delay 0))
               (let [reward (peek new-queue)]
                 (bandit/reward backend learner reward)
                 (recur choices (pop new-queue) remaining-delay new-result (inc t)))
+
+              (and bulk-rewards? (= 0 (mod t reward-delay)))
+              (let [rewards (take reward-delay new-queue)]
+                (doall
+                  (for [[_ batch] (group-by ::spec/arm-name rewards)]
+                    (let [bulk-reward (bulkify-rewards batch)]
+                      (bandit/bulk-reward backend learner bulk-reward))))
+                (recur choices
+                       (ext/pop-n reward-delay new-queue)
+                       remaining-delay
+                       new-result
+                       (inc t)))
+
+              :else
               (recur choices new-queue (dec remaining-delay) new-result (inc t)))))))))
 
 (defn total-reward
@@ -183,12 +222,14 @@
   [filename backend problem algo-param-pairs reward-delay
    & {:keys [include-max-regret?
              arm-deletion-times
-             arm-addition-times]}]
+             arm-addition-times
+             bulk-rewards?]}]
   (let [ixes (pmap
               (fn [[algo params]]
                 (run-on-test-problem backend algo params problem reward-delay
                                      :arm-deletion-times arm-deletion-times
-                                     :arm-addition-times arm-addition-times))
+                                     :arm-addition-times arm-addition-times
+                                     :bulk-rewards? bulk-rewards?))
               algo-param-pairs)
         regrets (cond-> (mapv #(cumulative-total-regret problem %) ixes)
                   include-max-regret? (conj (cumulative-max-regret problem)))
@@ -200,7 +241,8 @@
       (csv/write-csv writer (apply map (partial conj []) regrets)))))
 
 (defn performance-comparison
-  [backend]
+  [backend
+   & {:keys [delay bulk-rewards?]}]
   (let [prob (stationary-problem 100000
                                  [(normal {:mu 200.7 :sd 2.0})
                                   (normal {:mu 15.1 :sd 1.3})
@@ -208,16 +250,27 @@
                                  :maximize? true)
         params {::spec/maximize? true}
         ucb-ixes (future
-                   (run-on-test-problem backend ::spec/ucb1 params prob 0))
+                   (run-on-test-problem backend
+                                        ::spec/ucb1
+                                        params
+                                        prob
+                                        (or delay 0)
+                                        :bulk-rewards? bulk-rewards?))
         eps-ixes (future
                    (run-on-test-problem backend
                                         ::spec/epsilon-greedy
                                         {::spec/epsilon 0.05
                                          ::spec/maximize? true}
                                         prob
-                                        0))
+                                        (or delay 0)
+                                        :bulk-rewards? bulk-rewards?))
         random-ixes (future
-                      (run-on-test-problem backend ::spec/random params prob 0))
+                      (run-on-test-problem backend
+                                           ::spec/random
+                                           params
+                                           prob
+                                           (or delay 0)
+                                           :bulk-rewards? bulk-rewards?))
         softmax-params {::spec/starting-temperature 1.0
                         ::spec/temp-decay-per-step (/ 1.0 100000)
                         ::spec/min-temperature 0.01
@@ -227,7 +280,8 @@
                                             ::spec/softmax
                                             softmax-params
                                             prob
-                                            0))
+                                            (or delay 0)
+                                            :bulk-rewards? bulk-rewards?))
         ucb-regret (total-regret prob @ucb-ixes)
         ucb-reward (total-reward prob @ucb-ixes)
         eps-regret (total-regret prob @eps-ixes)
@@ -245,8 +299,15 @@
 
 (deftest test-performance-comparison
   (testing "When maximizing, more sophisticated algorithms perform better"
-    (performance-comparison (atom {}))
-    (performance-comparison redis-conn)))
+    (testing "atom backend"
+      (performance-comparison (atom {})))
+    (testing "redis backend"
+      (performance-comparison redis-conn))
+    (testing "batch rewards, 5000 at a time"
+      (testing "atom backend"
+        (performance-comparison (atom {}) :delay 5000 :bulk-rewards? true))
+      (testing "redis backend"
+        (performance-comparison redis-conn :delay 5000 :bulk-rewards? true)))))
 
 (defn performance-comparison-minimization
   [backend]
@@ -313,3 +374,43 @@
           atom-ixes (run-on-test-problem (atom {}) ::spec/ucb1 {} prob 0)
           redis-ixes (run-on-test-problem redis-conn ::spec/ucb1 {} prob 0)]
       (is (= atom-ixes redis-ixes)))))
+
+(deftest test-bulk-reward-same-effect
+  (testing "Sending rewards in bulk gives (roughly) the same results as sending
+            rewards one-by-one."
+    (let [r (fn [x] {::spec/reward-value x ::spec/arm-name "arm1"})
+          rewards (map r [1.0 0.5 0.2 0.7 0.3 1.0 0.3 0.7 0.9 0.14])
+          bulk-reward (bulkify-rewards rewards)
+          ;; Also try sending two separate batches
+          bulk-reward2-1 (bulkify-rewards (take 5 rewards))
+          bulk-reward2-2 (bulkify-rewards (drop 5 rewards))
+          learner {::spec/algo-params {::spec/maximize? true
+                                       ::spec/learner-algo ::spec/epsilon-greedy
+                                       ::spec/epsilon 0.05}
+                   ::spec/arm-names ["arm1"]
+                   ::spec/experiment-name "learner"
+                   ::spec/learner-algo ::spec/epsilon-greedy}
+          bulk-learner (assoc learner ::spec/experiment-name "bulk-learner")
+          bulk-learner2 (assoc learner ::spec/experiment-name "bulk-learner2")
+          backend (atom {})]
+      (bandit/init backend learner)
+      (bandit/init backend bulk-learner)
+      (bandit/init backend bulk-learner2)
+      (bandit/bulk-reward backend bulk-learner bulk-reward)
+      (bandit/bulk-reward backend bulk-learner2 bulk-reward2-1)
+      (bandit/bulk-reward backend bulk-learner2 bulk-reward2-2)
+      (doall (map #(bandit/reward backend learner %) rewards))
+      (let [learner-state (get (bandit/get-arm-states backend learner) "arm1")
+            bulk-learner-state (get (bandit/get-arm-states backend bulk-learner)
+                                    "arm1")
+            bulk-learner2-state (get (bandit/get-arm-states backend bulk-learner)
+                                     "arm1")]
+        (is (approx-eq (:mean-reward learner-state)
+                       (:mean-reward bulk-learner-state)
+                       0.0005))
+        (is (approx-eq (:mean-reward learner-state)
+                       (:mean-reward bulk-learner2-state)
+                       0.0005))
+        (is (= (:n learner-state)
+               (:n bulk-learner-state)
+               (:n bulk-learner2-state)))))))

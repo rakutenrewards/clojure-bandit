@@ -70,11 +70,6 @@
   [arm-states]
   (fmap :mean-reward arm-states))
 
-(defn arm-states->arm-variances
-  "Computes the variance of the reward of each arm."
-  [arm-states]
-  (fmap #(/ (:mean-sq-dist %) (:n %)) arm-states))
-
 (defn arm-states->unrewarded-arm-names
   "Returns all arm names that have not yet received a reward."
   [arm-states]
@@ -271,6 +266,26 @@
          (spec/check ::spec/reward reward)]}
   (reward* storage-backend learner-info reward))
 
+(defn bulk-reward
+  "Gives a learner a set of rewards for a particular arm. The caller must
+   supply the number of rewards, the mean of the rewards, and the variance of
+   the rewards. Example invocation:
+   ```
+   (bulk-reward {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
+            {::spec/bulk-reward-mean 12.5
+             ::spec/bulk-reward-count 10
+             ::spec/bulk-reward-variance 2
+             ::spec/bulk-reward-max 15
+             ::spec/arm-name \"arm1\"})
+   ```"
+  [storage-backend learner-info bulk-reward]
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)
+         (spec/check ::spec/bulk-reward bulk-reward)]}
+  (state/bulk-reward storage-backend
+                     (::spec/experiment-name learner-info)
+                     (::spec/arm-name bulk-reward)
+                     bulk-reward))
+
 (defn init
   "Initializes the state of a learner. Example invocation:
    ```
@@ -306,3 +321,10 @@
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)
          (spec/check ::spec/arm-name arm-name)]}
   (delete-arm* storage-backend learner-info arm-name))
+
+(defn get-arm-states
+  "Gets the state of all arms for the given learner. This can be used to create
+   reports or summaries of bandit results."
+  [storage-backend learner-info]
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
+  (state/get-arm-states storage-backend (::spec/experiment-name learner-info)))

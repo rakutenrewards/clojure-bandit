@@ -78,3 +78,15 @@
 (spec/def ::reward
   (spec/keys :req [::reward-value
                    ::arm-name]))
+
+(spec/def ::bulk-reward-mean ::finite-double)
+
+(spec/def ::bulk-reward-count int?)
+
+(spec/def ::bulk-reward-max ::finite-double)
+
+(spec/def ::bulk-reward
+  (spec/keys :req [::bulk-reward-mean
+                   ::bulk-reward-count
+                   ::bulk-reward-max
+                   ::arm-name]))

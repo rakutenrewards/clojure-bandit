@@ -35,3 +35,8 @@
 (defn parse-int
   [x]
   (Integer/parseInt x))
+
+(defn pop-n
+  "Pops n items from a persistent queue. Returns a persistent queue."
+  [n q]
+  (apply conj clojure.lang.PersistentQueue/EMPTY (drop n q)))

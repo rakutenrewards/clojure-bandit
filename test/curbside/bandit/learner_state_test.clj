@@ -55,7 +55,14 @@
     (state/record-reward backend "test-learner" "arm2" 0.5)
     (let [arm-states (state/get-arm-states backend "test-learner")]
       (is (= {"arm1" state/default-arm-state
-              "arm2" {:mean-reward 0.25 :n 2 :mean-sq-dist 0.125}} arm-states)))))
+              "arm2" {:mean-reward 0.25 :n 2}} arm-states))))
+  (testing "bulk reward arm"
+    (state/bulk-reward backend "test-learner" "arm1" {::spec/bulk-reward-mean 0.5
+                                                      ::spec/bulk-reward-max 0.5
+                                                      ::spec/bulk-reward-count 1})
+    (let [arm-states (state/get-arm-states backend "test-learner")]
+      (is (= (get arm-states "arm2")
+             (get arm-states "arm1"))))))
 
 (deftest test-arm-crud
   (test-arm-crud-backend (atom {}))
