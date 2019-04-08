@@ -75,7 +75,24 @@
       (let [arm-states (state/get-arm-states backend "test-learner")]
         (is (= {"arm1" {:mean-reward 0.25 :n 2}
                 "arm2" default-arm-state
-                "arm3" {:mean-reward 0.25 :n 2}} arm-states))))))
+                "arm3" {:mean-reward 0.25 :n 2}} arm-states))))
+    (testing "rewarding an arm before it is created has no effect"
+      (state/record-reward backend "test-learner" "arm4" 0.5)
+      (state/create-arm backend test-learner "arm4")
+      (let [arm-states (state/get-arm-states backend "test-learner")]
+        (is (= default-arm-state
+               (get arm-states "arm4")))))
+    (testing "bulk rewarding an arm before it is created has no effect"
+      (state/bulk-reward backend
+                         "test-learner"
+                         "arm5"
+                         {::spec/bulk-reward-mean 0.5
+                          ::spec/bulk-reward-max 0.5
+                          ::spec/bulk-reward-count 1})
+      (state/create-arm backend test-learner "arm5")
+      (let [arm-states (state/get-arm-states backend "test-learner")]
+        (is (= default-arm-state
+               (get arm-states "arm5")))))))
 
 (deftest test-arm-crud
   (test-arm-crud-backend (atom {}) "ATOM:")
