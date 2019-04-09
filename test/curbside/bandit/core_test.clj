@@ -176,9 +176,9 @@
               (and bulk-rewards? (= 0 (mod t reward-delay)))
               (let [rewards (take reward-delay new-queue)]
                 (doall
-                  (for [[_ batch] (group-by ::spec/arm-name rewards)]
-                    (let [bulk-reward (bulkify-rewards batch)]
-                      (bandit/bulk-reward backend learner bulk-reward))))
+                 (for [[_ batch] (group-by ::spec/arm-name rewards)]
+                   (let [bulk-reward (bulkify-rewards batch)]
+                     (bandit/bulk-reward backend learner bulk-reward))))
                 (recur choices
                        (ext/pop-n reward-delay new-queue)
                        remaining-delay

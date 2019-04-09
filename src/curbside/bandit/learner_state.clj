@@ -53,9 +53,26 @@
   (fn [backend experiment-name]
     (type backend)))
 
+(defn- remove-deleted-arms
+  "Given a map from arm ids to arm states, remove all arms that have been
+   soft-deleted."
+  [arm-states]
+  (->> arm-states
+       (filter (fn [[k v]] (not (:deleted? v))))
+       (into {})
+       (fmap #(dissoc % :deleted?))))
+
+(defn- convert-arm-state-types
+  "converts data in arm-state to expected types for core fns."
+  [arm-state]
+  (->> arm-state
+       (fmap ext/parse-double)
+       ((fn [x] (update x :n int)))))
+
 (defmethod get-arm-states clojure.lang.Atom
   [backend experiment-name]
-  (get-in @backend [experiment-name :arm-states]))
+  (->> (get-in @backend [experiment-name :arm-states])
+       remove-deleted-arms))
 
 (defn- redis-get-arm-names
   "Get the names of all arms for an experiment from Redis."
@@ -67,9 +84,7 @@
   (let [k (arm-state-key experiment-name arm-name)]
     (->> (wcar conn (car/hgetall k))
          redis/->redis-map
-         (fmap ext/parse-double)
-         ext/keywordify-keys
-         ((fn [x] (update x :n int))))))
+         ext/keywordify-keys)))
 
 (defmethod get-arm-states carmine-conn-type
   [backend experiment-name]
@@ -79,7 +94,9 @@
                                                 experiment-name
                                                 arm-name)]
              [arm-name arm-state]))
-         (into {}))))
+         (into {})
+         remove-deleted-arms
+         (fmap convert-arm-state-types))))
 
 (defmulti record-reward
   "For a given experiment and arm, increment the total number of times the
@@ -95,13 +112,14 @@
 
 (defn record-reward*
   "Updates an arm's reward state using Welford's Algorithm."
-  [reward max-reward {:keys [mean-reward n] :as old-arm-state}]
+  [reward max-reward {:keys [mean-reward n deleted?] :as old-arm-state}]
   (let [new-max-reward (max reward max-reward)
         scaled-reward (/ reward new-max-reward)
         delta (- scaled-reward mean-reward)
         new-mean-reward (+ mean-reward (/ delta (inc n)))
         new-state {:n (inc n)
-                   :mean-reward new-mean-reward}]
+                   :mean-reward new-mean-reward
+                   :deleted? deleted?}]
     [new-max-reward new-state]))
 
 (defmethod record-reward clojure.lang.Atom
@@ -132,18 +150,20 @@
         max-reward-key (max-reward-key experiment-name)]
     (wcar backend
           (car/lua
-           "local max_reward = redis.call('get',_:max-reward-key)
-            local mean_reward = redis.call ('hget',_:arm-key,'mean-reward')
-            local new_n = 1 + redis.call ('hget',_:arm-key,'n')
+           "if redis.call('exists',_:arm-key) == 1 then
+              local max_reward = redis.call('get',_:max-reward-key)
+              local mean_reward = redis.call ('hget',_:arm-key,'mean-reward')
+              local new_n = 1 + redis.call ('hget',_:arm-key,'n')
 
-            local new_max_reward = math.max(_:reward,max_reward)
-            local scaled_reward = _:reward/new_max_reward
-            local delta = scaled_reward - mean_reward
-            local new_mean_reward = mean_reward + (delta / new_n)
+              local new_max_reward = math.max(_:reward,max_reward)
+              local scaled_reward = _:reward/new_max_reward
+              local delta = scaled_reward - mean_reward
+              local new_mean_reward = mean_reward + (delta / new_n)
 
-            redis.call('set',_:max-reward-key,new_max_reward)
-            redis.call('hset',_:arm-key,'n',new_n)
-            redis.call('hset',_:arm-key,'mean-reward',new_mean_reward)"
+              redis.call('set',_:max-reward-key,new_max_reward)
+              redis.call('hset',_:arm-key,'n',new_n)
+              redis.call('hset',_:arm-key,'mean-reward',new_mean_reward)
+            end"
            {:arm-key arm-key
             :max-reward-key max-reward-key}
            {:reward reward}))))
@@ -240,18 +260,20 @@
         max-reward-key (max-reward-key experiment-name)]
     (wcar backend
           (car/lua
-           "local max_reward = redis.call('get',_:max_reward_key)
-            local mean_reward = redis.call('hget',_:arm_key,'mean-reward')
-            local new_n = _:bulk_reward_count + redis.call('hget',_:arm_key,'n')
+           "if redis.call('exists',_:arm_key) == 1 then
+              local max_reward = redis.call('get',_:max_reward_key)
+              local mean_reward = redis.call('hget',_:arm_key,'mean-reward')
+              local new_n = _:bulk_reward_count + redis.call('hget',_:arm_key,'n')
 
-            local new_max_reward = math.max(_:bulk_reward_max, max_reward)
-            local scaled_bulk_reward_mean = _:bulk_reward_mean / new_max_reward
-            local delta = scaled_bulk_reward_mean - mean_reward
-            local new_mean_reward = mean_reward + (delta * (_:bulk_reward_count / new_n))
+              local new_max_reward = math.max(_:bulk_reward_max, max_reward)
+              local scaled_bulk_reward_mean = _:bulk_reward_mean / new_max_reward
+              local delta = scaled_bulk_reward_mean - mean_reward
+              local new_mean_reward = mean_reward + (delta * (_:bulk_reward_count / new_n))
 
-            redis.call('set',_:max_reward_key,new_max_reward)
-            redis.call('hset',_:arm_key,'n',new_n)
-            redis.call('hset',_:arm_key,'mean-reward',new_mean_reward)"
+              redis.call('set',_:max_reward_key,new_max_reward)
+              redis.call('hset',_:arm_key,'n',new_n)
+              redis.call('hset',_:arm_key,'mean-reward',new_mean_reward)
+            end"
            {:arm_key arm-key
             :max_reward_key max-reward-key}
            {:bulk_reward_count bulk-reward-count
@@ -286,27 +308,41 @@
     (type backend)))
 
 (def default-arm-state {:n 1
-                        :mean-reward 0.0})
+                        :mean-reward 0.0
+                        :deleted? false})
 
 (defmethod create-arm clojure.lang.Atom
   [backend {::spec/keys [experiment-name]} arm-name]
   (swap! backend
          (fn [b]
-           (assoc-in b
-                     [experiment-name :arm-states arm-name]
-                     default-arm-state))))
+           (if (get-in b [experiment-name
+                          :arm-states
+                          arm-name
+                          :deleted?])
+             (assoc-in b
+                       [experiment-name
+                        :arm-states
+                        arm-name
+                        :deleted?]
+                       false)
+             (assoc-in b
+                       [experiment-name :arm-states arm-name]
+                       default-arm-state)))))
 
 (defn- redis-init-arm
   "Initializes a new arm in Redis for a given experiment."
-  [experiment-name arm-name]
-  (car/hmset* (arm-state-key experiment-name arm-name)
-              (ext/stringify-keys default-arm-state)))
+  [backend experiment-name arm-name]
+  (let [key (arm-state-key experiment-name arm-name)]
+    (if (first (wcar backend (car/hmget key "deleted?")))
+      (car/hmset key "deleted?" false)
+      (car/hmset* key
+                  (ext/stringify-keys default-arm-state)))))
 
 (defmethod create-arm carmine-conn-type
   [backend {::spec/keys [experiment-name]} arm-name]
   (wcar backend
         (car/sadd (arm-names-key experiment-name) arm-name)
-        (redis-init-arm experiment-name arm-name)))
+        (redis-init-arm backend experiment-name arm-name)))
 
 (defmulti init-experiment
   "Initialize a new learner for a new experiment."
@@ -337,7 +373,7 @@
                     (ext/stringify-keys algo-params))
         (car/set (max-reward-key experiment-name) 1.0)
         (apply car/sadd (arm-names-key experiment-name) arm-names)
-        (dorun (map #(redis-init-arm experiment-name %) arm-names))
+        (dorun (map #(redis-init-arm conn experiment-name %) arm-names))
         (car/set (choose-count-key experiment-name) 0)
         (car/exec)))
 
@@ -350,14 +386,13 @@
   [backend {::spec/keys [experiment-name]} arm-name]
   (swap! backend
          (fn [b]
-           (update-in b [experiment-name :arm-states] dissoc arm-name))))
+           (assoc-in b [experiment-name :arm-states arm-name :deleted?] true))))
 
 (defmethod delete-arm carmine-conn-type
   [conn {::spec/keys [experiment-name]} arm-name]
   (wcar conn
         (car/multi)
-        (car/srem (arm-names-key experiment-name) arm-name)
-        (car/del (arm-state-key experiment-name arm-name))
+        (car/hmset (arm-state-key experiment-name arm-name) "deleted?" true)
         (car/exec)))
 
 (defmulti incr-choose-calls
