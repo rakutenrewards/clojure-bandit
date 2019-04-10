@@ -1,4 +1,4 @@
-(defproject bandit "0.1.1-SNAPSHOT"
+(defproject curbside-bandit "0.1.1"
   :description "Multi-armed bandit algorithms"
   :url "https://github.com/Curbside/curbside-bandit"
   :dependencies [[org.clojure/clojure "1.10.0"]
