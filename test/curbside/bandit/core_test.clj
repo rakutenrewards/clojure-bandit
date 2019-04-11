@@ -414,3 +414,26 @@
         (is (= (:n learner-state)
                (:n bulk-learner-state)
                (:n bulk-learner2-state)))))))
+
+(defn init-idempotent*
+  [backend backend-name]
+  (testing (str "init is idempotent for " backend-name)
+    (let [learner {::spec/algo-params {::spec/maximize? true
+                                       ::spec/learner-algo ::spec/epsilon-greedy
+                                       ::spec/epsilon 0.05}
+                   ::spec/arm-names ["arm1" "arm2"]
+                   ::spec/experiment-name "learner"
+                   ::spec/learner-algo ::spec/epsilon-greedy}]
+      (bandit/init backend learner)
+      (bandit/reward backend learner {::spec/reward-value 0.5
+                                      ::spec/arm-name "arm1"})
+      (bandit/reward backend learner {::spec/reward-value 0.2
+                                      ::spec/arm-name "arm2"})
+      (let [curr-state (bandit/get-arm-states backend learner)
+            _ (bandit/init backend learner)
+            state-after-init (bandit/get-arm-states backend learner)]
+        (is (= curr-state state-after-init))))))
+
+(deftest init-idempotent
+  (init-idempotent* (atom {}) "atom")
+  (init-idempotent* redis-conn "redis"))

@@ -26,6 +26,7 @@
 
 (defn test-init-backend
   [backend]
+  (is (false? (state/exists? backend test-learner)))
   (state/init-experiment backend test-learner)
   (let [params (state/get-learner-params backend "test-learner")
         arm-states (state/get-arm-states backend "test-learner")]
