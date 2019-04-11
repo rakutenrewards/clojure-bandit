@@ -344,6 +344,25 @@
         (car/sadd (arm-names-key experiment-name) arm-name)
         (redis-init-arm backend experiment-name arm-name)))
 
+(defmulti exists?
+  "Returns true if an experiment exists."
+  (fn [backend learner]
+    (type backend)))
+
+(defmethod exists? clojure.lang.Atom
+  [backend {::spec/keys [experiment-name]
+            :as _learner-map}]
+  (not (nil? (get @backend experiment-name))))
+
+(defmethod exists? carmine-conn-type
+  [conn {::spec/keys [experiment-name]
+         :as _learner-map}]
+  (let [[redis-result] (wcar conn
+                             ;; any key that is set when the experiment is
+                             ;; created could be used here.
+                             (car/get (max-reward-key experiment-name)))]
+    (not (nil? redis-result))))
+
 (defmulti init-experiment
   "Initialize a new learner for a new experiment."
   (fn [backend learner]
@@ -352,30 +371,32 @@
 (defmethod init-experiment clojure.lang.Atom
   [backend {::spec/keys [learner-algo algo-params
                          arm-names experiment-name]
-            :as _learner-map}]
-  (let [arm-states (into {} (for [arm-name arm-names]
-                              [arm-name default-arm-state]))]
-    (swap! backend
-           (fn [b]
-             (-> b
-                 (assoc-in [experiment-name :params] algo-params)
-                 (assoc-in [experiment-name :arm-states] arm-states)
-                 (assoc-in [experiment-name :max-reward] 1.0)
-                 (assoc-in [experiment-name :choose-count] 0))))))
+            :as learner-map}]
+  (when-not (exists? backend learner-map)
+    (let [arm-states (into {} (for [arm-name arm-names]
+                                [arm-name default-arm-state]))]
+      (swap! backend
+             (fn [b]
+               (-> b
+                   (assoc-in [experiment-name :params] algo-params)
+                   (assoc-in [experiment-name :arm-states] arm-states)
+                   (assoc-in [experiment-name :max-reward] 1.0)
+                   (assoc-in [experiment-name :choose-count] 0)))))))
 
 (defmethod init-experiment carmine-conn-type
   [conn {::spec/keys [learner-algo algo-params
                       arm-names experiment-name]
-         :as _learner-map}]
-  (wcar conn
-        (car/multi)
-        (car/hmset* (params-key experiment-name)
-                    (ext/stringify-keys algo-params))
-        (car/set (max-reward-key experiment-name) 1.0)
-        (apply car/sadd (arm-names-key experiment-name) arm-names)
-        (dorun (map #(redis-init-arm conn experiment-name %) arm-names))
-        (car/set (choose-count-key experiment-name) 0)
-        (car/exec)))
+         :as learner-map}]
+  (when-not (exists? conn learner-map)
+    (wcar conn
+          (car/multi)
+          (car/hmset* (params-key experiment-name)
+                      (ext/stringify-keys algo-params))
+          (car/set (max-reward-key experiment-name) 1.0)
+          (apply car/sadd (arm-names-key experiment-name) arm-names)
+          (dorun (map #(redis-init-arm conn experiment-name %) arm-names))
+          (car/set (choose-count-key experiment-name) 0)
+          (car/exec))))
 
 (defmulti delete-arm
   "Deletes an arm from an existing experiment."
