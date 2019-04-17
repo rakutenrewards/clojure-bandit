@@ -127,37 +127,39 @@
 
 (defmethod choose* ::spec/ucb1
   [storage-backend learner]
-  (let [arm-states (state/get-arm-states storage-backend
-                                         (::spec/experiment-name learner))
-        params (state/get-learner-params storage-backend
-                                         (::spec/experiment-name learner))
-        call-count (state/incr-choose-calls storage-backend
-                                            (::spec/experiment-name learner))
-        unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
-        k (count arm-states)
-        num-unrewarded (count unrewarded-arms)]
-    (assert k)
-    (assert num-unrewarded)
-    (assert call-count)
-    (cond
-      ;; If we haven't received any rewards yet, round-robin between arms.
-      ;; This helps us converge faster when rewards are delayed.
-      (= num-unrewarded k)
-      (choose-round-robin unrewarded-arms call-count)
+  (when-let [arm-states (not-empty
+                         (state/get-arm-states storage-backend
+                                               (::spec/experiment-name learner)))]
+    (let [params (state/get-learner-params storage-backend
+                                           (::spec/experiment-name learner))
+          call-count (state/incr-choose-calls storage-backend
+                                              (::spec/experiment-name learner))
+          unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
+          k (count arm-states)
+          num-unrewarded (count unrewarded-arms)]
+      (assert k)
+      (assert num-unrewarded)
+      (assert call-count)
+      (cond
+        ;; If we haven't received any rewards yet, round-robin between arms.
+        ;; This helps us converge faster when rewards are delayed.
+        (= num-unrewarded k)
+        (choose-round-robin unrewarded-arms call-count)
 
-      ;; If a new arm has been added, choose it 1 out of k times.
-      (and (> num-unrewarded 0)
-           (< (mod call-count k) num-unrewarded))
-      (choose-round-robin unrewarded-arms call-count)
+        ;; If a new arm has been added, choose it 1 out of k times.
+        (and (> num-unrewarded 0)
+             (< (mod call-count k) num-unrewarded))
+        (choose-round-robin unrewarded-arms call-count)
 
-      ;; Otherwise, use standard UCB1 behavior.
-      :else
-      (choose-ucb1 arm-states params call-count))))
+        ;; Otherwise, use standard UCB1 behavior.
+        :else
+        (choose-ucb1 arm-states params call-count)))))
 
 (defmethod choose* ::spec/random
   [storage-backend learner]
-  (let [arm-states (state/get-arm-states storage-backend
-                                         (::spec/experiment-name learner))]
+  (when-let [arm-states (not-empty
+                         (state/get-arm-states storage-backend
+                                               (::spec/experiment-name learner)))]
     (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
     (nth (keys arm-states) (rand-int (count arm-states)))))
 
@@ -200,12 +202,13 @@
 
 (defmethod choose* ::spec/softmax
   [storage-backend learner]
-  (let [arm-states (state/get-arm-states storage-backend
-                                         (::spec/experiment-name learner))
-        params (state/get-learner-params storage-backend
-                                         (::spec/experiment-name learner))]
-    (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
-    (choose-softmax arm-states params)))
+  (when-let [arm-states (not-empty
+                         (state/get-arm-states storage-backend
+                                               (::spec/experiment-name learner)))]
+    (let [params (state/get-learner-params storage-backend
+                                           (::spec/experiment-name learner))]
+      (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
+      (choose-softmax arm-states params))))
 
 (defmulti reward*
   "Updates the learner state with the given reward. See [[reward]] for details."
