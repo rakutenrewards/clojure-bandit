@@ -1,5 +1,7 @@
 (ns curbside.bandit.stats
-  "Probability and statistics helpers.")
+  "Probability and statistics helpers."
+  (:require
+   [clojure.algo.generic.functor :refer [fmap]]))
 
 (def const-e 2.71828)
 
@@ -17,3 +19,12 @@
                           first
                           first)]
     (first (nth sorted-probs chosen-index))))
+
+(defn flip-probabilities
+  "Given a map where the values are probabilities, invert the probabilities
+   so that the least probable becomes the most probable and vice versa."
+  [probs]
+  (let [n (count probs)]
+    (fmap
+     (fn [p] (- (* 2 (/ 1.0 n)) p))
+     probs)))
