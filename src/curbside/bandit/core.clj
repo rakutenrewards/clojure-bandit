@@ -93,7 +93,8 @@
         threshold (+ (- 1.0 epsilon) (/ epsilon k))
         best-key (if maximize? max-key min-key)
         best-arm (key (apply best-key val arm-means))
-        rand-arm (nth arm-names (rand-int k))]
+        other-arms (filter #(not= % best-arm) arm-names)
+        rand-arm (nth other-arms (rand-int (- k 1)))]
     (if (< (rand) threshold) best-arm rand-arm)))
 
 (defmethod choose* ::spec/epsilon-greedy
@@ -116,12 +117,13 @@
                                     experiment-name)
           arm-means (arm-states->arm-means arm-states)
           best-key (if maximize? max-key min-key)
-          best-arm (key (apply best-key val arm-means))]
+          best-arm (key (apply best-key val arm-means))
+          k (count arm-means)]
       (ext/map-kvs
        (fn [arm-name _mean-reward]
          (if (= arm-name best-arm)
-           (- 1.0 epsilon)
-           (/ epsilon (- (count arm-means) 1))))
+           (+ (- 1.0 epsilon) (/ epsilon k))
+           (/ epsilon k)))
        arm-means))))
 
 (defn choose-round-robin
