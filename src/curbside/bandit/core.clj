@@ -55,9 +55,14 @@
   (:require
    [clojure.algo.generic.functor :refer [fmap]]
    [clojure.math.numeric-tower :as math]
+   [curbside.bandit.ext :as ext]
    [curbside.bandit.learner-state :as state]
    [curbside.bandit.spec :as spec]
    [curbside.bandit.stats :as stats]))
+
+(defmulti arm-selection-probabilities*
+  (fn [storage-backend learner]
+    (::spec/learner-algo learner)))
 
 (defmulti choose*
   "Chooses an ::spec/arm-name for the given learner. See documentation of
@@ -88,7 +93,8 @@
         threshold (+ (- 1.0 epsilon) (/ epsilon k))
         best-key (if maximize? max-key min-key)
         best-arm (key (apply best-key val arm-means))
-        rand-arm (nth arm-names (rand-int k))]
+        other-arms (filter #(not= % best-arm) arm-names)
+        rand-arm (nth other-arms (rand-int (- k 1)))]
     (if (< (rand) threshold) best-arm rand-arm)))
 
 (defmethod choose* ::spec/epsilon-greedy
@@ -102,25 +108,49 @@
     (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
     (choose-epsilon-greedy (arm-states->arm-means arm-states) params)))
 
+(defmethod arm-selection-probabilities* ::spec/epsilon-greedy
+  [storage-backend {::spec/keys [experiment-name]}]
+  (when-let [arm-states (not-empty (state/get-arm-states storage-backend
+                                                         experiment-name))]
+    (let [{::spec/keys [epsilon maximize?]}
+          (state/get-learner-params storage-backend
+                                    experiment-name)
+          arm-means (arm-states->arm-means arm-states)
+          best-key (if maximize? max-key min-key)
+          best-arm (key (apply best-key val arm-means))
+          k (count arm-means)]
+      (ext/map-kvs
+       (fn [arm-name _mean-reward]
+         (if (= arm-name best-arm)
+           (+ (- 1.0 epsilon) (/ epsilon k))
+           (/ epsilon k)))
+       arm-means))))
+
 (defn choose-round-robin
   "Chooses an arm-name in round-robin order."
   [arm-names call-count]
   (let [k (count arm-names)]
     (nth arm-names (mod call-count k))))
 
+(defn- upper-confidence-bounds
+  "Compute the upper confidence bound for each arm."
+  [arm-states]
+  (let [total-iterations (reduce + (map (comp :n val) arm-states))]
+    (into {}
+          (for [[arm-name {:keys [mean-reward n]}] arm-states]
+            (let [const (Math/sqrt (/ (* 2 (Math/log total-iterations))
+                                      n))]
+              [arm-name (+ mean-reward const)])))))
+
 (defn choose-ucb1
   "Chooses an arm using the upper confidence bound algorithm. This chooses the
    arm that maximizes the expected reward, where the expected reward of the arm
    is defined as the historical mean reward of the arm, plus a constant
    exploration term."
-  [arm-states {::spec/keys [maximize?] :as _params} call-count]
+  [arm-states {::spec/keys [maximize?] :as _params}]
   {:pre [(not (nil? maximize?))]}
   (let [total-iterations (reduce + (map (comp :n val) arm-states))
-        ucbs (into {}
-                   (for [[arm-name {:keys [mean-reward n]}] arm-states]
-                     (let [const (Math/sqrt (/ (* 2 (Math/log total-iterations))
-                                               n))]
-                       [arm-name (+ mean-reward const)])))
+        ucbs (upper-confidence-bounds arm-states)
         best-key (if maximize? max-key min-key)
         best-arm (key (apply best-key val ucbs))]
     best-arm))
@@ -153,7 +183,38 @@
 
         ;; Otherwise, use standard UCB1 behavior.
         :else
-        (choose-ucb1 arm-states params call-count)))))
+        (choose-ucb1 arm-states params)))))
+
+(defmethod arm-selection-probabilities* ::spec/ucb1
+  [storage-backend {::spec/keys [experiment-name]}]
+  (when-let [arm-states (not-empty
+                         (state/get-arm-states storage-backend
+                                               experiment-name))]
+    (let [params (state/get-learner-params storage-backend
+                                           experiment-name)
+          call-count (state/incr-choose-calls storage-backend
+                                              experiment-name)
+          unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
+          k (count arm-states)
+          num-unrewarded (count unrewarded-arms)]
+      (cond
+        (= num-unrewarded k)
+        (fmap (constantly (/ 1.0 k)) arm-states)
+
+        (and (> num-unrewarded 0)
+             (< (mod call-count k) num-unrewarded))
+        (fmap (constantly (/ 1.0 k)) arm-states)
+
+        :else
+        (let [ucbs (upper-confidence-bounds arm-states)
+              best-key (if (::spec/maximize? params) max-key min-key)
+              best-arm (key (apply best-key val ucbs))]
+          (ext/map-kvs
+           (fn [arm-name _]
+             (if (= arm-name best-arm)
+               1.0
+               0.0))
+           arm-states))))))
 
 (defmethod choose* ::spec/random
   [storage-backend learner]
@@ -162,6 +223,32 @@
                                                (::spec/experiment-name learner)))]
     (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
     (nth (keys arm-states) (rand-int (count arm-states)))))
+
+(defmethod arm-selection-probabilities* ::spec/random
+  [storage-backend learner]
+  (when-let [arm-states (not-empty
+                         (state/get-arm-states storage-backend
+                                               (::spec/experiment-name learner)))]
+    (let [p (/ 1.0 (count arm-states))]
+      (fmap (constantly p) arm-states))))
+
+(defn- arm-states->softmax
+  [arm-states {::spec/keys [starting-temperature
+                            temp-decay-per-step
+                            min-temperature
+                            maximize?]}]
+  {:pre [starting-temperature temp-decay-per-step min-temperature]}
+  (let [arm-means (arm-states->arm-means arm-states)
+        total-iterations (reduce + (map (comp :n val) arm-states))
+        current-temp (max min-temperature
+                          (- starting-temperature (* temp-decay-per-step
+                                                     total-iterations)))
+        adjust-by-temp #(math/expt stats/const-e (/ % current-temp))
+        adjusted-values (fmap adjust-by-temp arm-means)
+        adjusted-values-sum (reduce + (vals adjusted-values))
+        softmax (fmap #(/ % adjusted-values-sum)
+                      adjusted-values)]
+    softmax))
 
 (defn choose-softmax
   "Softmax arm selection. Begins by choosing arms randomly with roughly equal
@@ -179,25 +266,13 @@
 
    See http://incompleteideas.net/book/ebook/node17.html for more information
    about this algorithm."
-  [arm-states {::spec/keys [starting-temperature
-                            temp-decay-per-step
-                            min-temperature
-                            maximize?]}]
-  {:pre [starting-temperature temp-decay-per-step min-temperature
-         (boolean? maximize?)]}
-  (let [arm-means (arm-states->arm-means arm-states)
-        total-iterations (reduce + (map (comp :n val) arm-states))
-        current-temp (max min-temperature
-                          (- starting-temperature (* temp-decay-per-step
-                                                     total-iterations)))
-        adjust-by-temp #(math/expt stats/const-e (/ % current-temp))
-        adjusted-values (fmap adjust-by-temp arm-means)
-        softmaxes (fmap #(/ (adjust-by-temp %)
-                            (reduce + (vals adjusted-values)))
-                        arm-means)
-        best-arm (stats/select-by-probability (if maximize?
-                                                softmaxes
-                                                (fmap #(- 1.0 %) softmaxes)))]
+  [arm-states {::spec/keys [maximize?] :as learner-params}]
+  {:pre [(boolean? maximize?)]}
+  (let [softmaxes (arm-states->softmax arm-states learner-params)
+        best-arm (stats/select-by-probability
+                  (if maximize?
+                    softmaxes
+                    (stats/flip-probabilities softmaxes)))]
     best-arm))
 
 (defmethod choose* ::spec/softmax
@@ -209,6 +284,18 @@
                                            (::spec/experiment-name learner))]
       (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
       (choose-softmax arm-states params))))
+
+(defmethod arm-selection-probabilities* ::spec/softmax
+  [storage-backend {::spec/keys [experiment-name] :as learner}]
+  (when-let [arm-states (not-empty
+                         (state/get-arm-states storage-backend
+                                               experiment-name))]
+    (let [params (state/get-learner-params storage-backend
+                                           experiment-name)
+          softmaxes (arm-states->softmax arm-states params)]
+      (if (::spec/maximize? params)
+        softmaxes
+        (stats/flip-probabilities softmaxes)))))
 
 (defmulti reward*
   "Updates the learner state with the given reward. See [[reward]] for details."
@@ -243,6 +330,13 @@
   [storage-backend learner arm-name]
   (state/delete-arm storage-backend learner arm-name))
 
+(defn arm-selection-probabilities
+  "Reports the current probability that each arm will be chosen."
+  [storage-backend learner-info]
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
+  {:post [map?]}
+  (arm-selection-probabilities* storage-backend learner-info))
+
 ;; TODO: real code will pass in just the experiment-name and look up learner
 ;; from storage-backend.
 ;; TODO: if this service ends up needing multiple external services, use
@@ -262,7 +356,7 @@
   "Gives a learner the reward for a particular arm. Example invocation:
    ```
    (reward {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
-            {::spec/reward-value 12.5 ::spec/arm-name \"arm1\"})
+           {::spec/reward-value 12.5 ::spec/arm-name \"arm1\"})
    ```"
   [storage-backend learner-info reward]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)
@@ -277,7 +371,6 @@
    (bulk-reward {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
             {::spec/bulk-reward-mean 12.5
              ::spec/bulk-reward-count 10
-             ::spec/bulk-reward-variance 2
              ::spec/bulk-reward-max 15
              ::spec/arm-name \"arm1\"})
    ```"

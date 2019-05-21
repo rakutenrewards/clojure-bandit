@@ -1,5 +1,6 @@
 (ns curbside.bandit.core-test
   (:require
+   [clojure.algo.generic.functor :refer [fmap]]
    [clojure.data.csv :as csv]
    [clojure.core.match :refer [match]]
    [clojure.java.io :as io]
@@ -8,6 +9,7 @@
    [curbside.bandit.core :as bandit]
    [curbside.bandit.ext :as ext]
    [curbside.bandit.spec :as spec]
+   [curbside.bandit.stats :as stats]
    [kixi.stats.distribution :refer [draw sample normal]]
    [taoensso.carmine :as car :refer (wcar)])
   (:import
@@ -239,6 +241,58 @@
     (with-open [writer (io/writer filename)]
       (csv/write-csv writer [column-names])
       (csv/write-csv writer (apply map (partial conj []) regrets)))))
+
+(deftest test-arm-selection-probabilities
+  (let [backend (atom {})
+        maximize? true
+        ucb-learner {::spec/learner-algo ::spec/ucb1
+                     ::spec/algo-params {::spec/maximize? maximize?
+                                         ::spec/learner-algo ::spec/ucb1}
+                     ::spec/arm-names ["1" "2" "3"]
+                     ::spec/experiment-name (str (UUID/randomUUID))}
+        eps-learner {::spec/learner-algo ::spec/epsilon-greedy
+                     ::spec/algo-params {::spec/maximize? maximize?
+                                         ::spec/learner-algo ::spec/epsilon-greedy
+                                         ::spec/epsilon 0.05}
+                     ::spec/arm-names ["1" "2" "3"]
+                     ::spec/experiment-name (str (UUID/randomUUID))}
+        softmax-learner {::spec/learner-algo ::spec/softmax
+                         ::spec/algo-params {::spec/starting-temperature 1.0
+                                             ::spec/temp-decay-per-step (/ 1.0 100000)
+                                             ::spec/min-temperature 0.01
+                                             ::spec/maximize? maximize?
+                                             ::spec/learner-algo ::spec/softmax}
+                         ::spec/arm-names ["1" "2" "3"]
+                         ::spec/experiment-name (str (UUID/randomUUID))}]
+    (doseq [learner [ucb-learner eps-learner softmax-learner]]
+      (bandit/init backend learner)
+      (bandit/bulk-reward backend learner {::spec/bulk-reward-mean 14.5
+                                           ::spec/bulk-reward-count 25
+                                           ::spec/bulk-reward-max 16
+                                           ::spec/arm-name "1"})
+      (bandit/bulk-reward backend learner {::spec/bulk-reward-mean 11.5
+                                           ::spec/bulk-reward-count 25
+                                           ::spec/bulk-reward-max 16
+                                           ::spec/arm-name "2"})
+      (bandit/bulk-reward backend learner {::spec/bulk-reward-mean 10.5
+                                           ::spec/bulk-reward-count 25
+                                           ::spec/bulk-reward-max 16
+                                           ::spec/arm-name "3"})
+      (let [n 1000000
+            chosen (repeatedly n #(bandit/choose backend learner))
+            chosen-histogram (group-by identity chosen)
+            chosen-frequencies (fmap #(double (/ (count %) n)) chosen-histogram)
+            probabilities (bandit/arm-selection-probabilities
+                           backend learner)
+            arm-states (bandit/get-arm-states backend learner)]
+        (doseq [arm-name ["1" "2" "3"]]
+          (testing (str arm-name
+                        " chosen frequency approximates expectation for "
+                        (::spec/learner-algo learner))
+            (is (approx-eq
+                 (or (get chosen-frequencies arm-name) 0)
+                 (get probabilities arm-name)
+                 0.005))))))))
 
 (defn performance-comparison
   [backend
