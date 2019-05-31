@@ -134,12 +134,14 @@
 
 (defn- upper-confidence-bounds
   "Compute the upper confidence bound for each arm."
-  [arm-states maximize?]
+  [arm-states {::spec/keys [maximize? exploration-mult]}]
   (let [total-iterations (reduce + (map (comp :n val) arm-states))]
     (into {}
           (for [[arm-name {:keys [mean-reward n]}] arm-states]
-            (let [const (Math/sqrt (/ (* 2 (Math/log total-iterations))
-                                      n))]
+            (let [const
+                  (* (or exploration-mult 1.0)
+                     (Math/sqrt (/ (* 2 (Math/log total-iterations))
+                                   n)))]
               [arm-name ((if maximize? + -) mean-reward const)])))))
 
 (defn choose-ucb1
@@ -147,10 +149,10 @@
    arm that maximizes the expected reward, where the expected reward of the arm
    is defined as the historical mean reward of the arm, plus a constant
    exploration term."
-  [arm-states {::spec/keys [maximize?] :as _params}]
+  [arm-states {::spec/keys [maximize?] :as params}]
   {:pre [(not (nil? maximize?))]}
   (let [total-iterations (reduce + (map (comp :n val) arm-states))
-        ucbs (upper-confidence-bounds arm-states maximize?)
+        ucbs (upper-confidence-bounds arm-states params)
         best-key (if maximize? max-key min-key)
         best-arm (key (apply best-key val ucbs))]
     best-arm))

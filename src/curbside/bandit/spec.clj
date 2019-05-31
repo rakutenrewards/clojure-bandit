@@ -29,6 +29,8 @@
 
 (spec/def ::epsilon float?)
 
+(spec/def ::exploration-mult ::finite-double)
+
 (spec/def ::epsilon-greedy-params
   (spec/and ::common-params
             (spec/keys :req [::epsilon])
@@ -36,6 +38,7 @@
 
 (spec/def ::ucb1-params
   (spec/and ::common-params
+            (spec/keys :opt [::exploration-mult])
             #(= ::ucb1 (::learner-algo %))))
 
 (spec/def ::random-params
