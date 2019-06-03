@@ -134,23 +134,25 @@
 
 (defn- upper-confidence-bounds
   "Compute the upper confidence bound for each arm."
-  [arm-states]
+  [arm-states {::spec/keys [maximize? exploration-mult]}]
   (let [total-iterations (reduce + (map (comp :n val) arm-states))]
     (into {}
           (for [[arm-name {:keys [mean-reward n]}] arm-states]
-            (let [const (Math/sqrt (/ (* 2 (Math/log total-iterations))
-                                      n))]
-              [arm-name (+ mean-reward const)])))))
+            (let [const
+                  (* (or exploration-mult 1.0)
+                     (Math/sqrt (/ (* 2 (Math/log total-iterations))
+                                   n)))]
+              [arm-name ((if maximize? + -) mean-reward const)])))))
 
 (defn choose-ucb1
   "Chooses an arm using the upper confidence bound algorithm. This chooses the
    arm that maximizes the expected reward, where the expected reward of the arm
    is defined as the historical mean reward of the arm, plus a constant
    exploration term."
-  [arm-states {::spec/keys [maximize?] :as _params}]
+  [arm-states {::spec/keys [maximize?] :as params}]
   {:pre [(not (nil? maximize?))]}
   (let [total-iterations (reduce + (map (comp :n val) arm-states))
-        ucbs (upper-confidence-bounds arm-states)
+        ucbs (upper-confidence-bounds arm-states params)
         best-key (if maximize? max-key min-key)
         best-arm (key (apply best-key val ucbs))]
     best-arm))
@@ -190,8 +192,9 @@
   (when-let [arm-states (not-empty
                          (state/get-arm-states storage-backend
                                                experiment-name))]
-    (let [params (state/get-learner-params storage-backend
-                                           experiment-name)
+    (let [{::spec/keys [maximize?]}
+          (state/get-learner-params storage-backend
+                                    experiment-name)
           call-count (state/incr-choose-calls storage-backend
                                               experiment-name)
           unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
@@ -206,8 +209,8 @@
         (fmap (constantly (/ 1.0 k)) arm-states)
 
         :else
-        (let [ucbs (upper-confidence-bounds arm-states)
-              best-key (if (::spec/maximize? params) max-key min-key)
+        (let [ucbs (upper-confidence-bounds arm-states maximize?)
+              best-key (if maximize? max-key min-key)
               best-arm (key (apply best-key val ucbs))]
           (ext/map-kvs
            (fn [arm-name _]

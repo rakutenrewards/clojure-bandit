@@ -300,6 +300,8 @@
       (ext/update-in-if-contains [::spec/temp-decay-per-step]
                                  ext/parse-double)
       (ext/update-in-if-contains [::spec/min-temperature]
+                                 ext/parse-double)
+      (ext/update-in-if-contains [::spec/exploration-mult]
                                  ext/parse-double)))
 
 (defmulti create-arm
