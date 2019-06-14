@@ -15,12 +15,15 @@
    Usage is rather simple. We can create a new experiment with [[init]].
 
    ```
-   (require '[bandit.core :as bandit])
-   (require '[bandit.spec :as spec])
+   (require '[curbside.bandit.core :as bandit])
+   (require '[curbside.bandit.spec :as spec])
    (def bandit-state (atom {}))
    (def learner {::spec/learner-algo ::spec/ucb1
                  ::spec/experiment-name \"my-experiment\"
-                 ::spec/arm-names [\"arm1\" \"arm2\"]})
+                 ::spec/arm-names [\"arm1\" \"arm2\"]
+                 ::spec/algo-params
+                 {::spec/learner-algo ::spec/ucb1
+                  ::spec/maximize? true}})
    (bandit/init bandit-state learner)
    ```
 
@@ -51,7 +54,7 @@
    multimethods will look significantly different.
 
    Algorithm state is abstracted over by an opaque `storage-backend`. See
-   bandit.learner-state for the implementation."
+   curbside.bandit.learner-state for the implementation."
   (:require
    [clojure.algo.generic.functor :refer [fmap]]
    [clojure.math.numeric-tower :as math]
@@ -60,22 +63,22 @@
    [curbside.bandit.spec :as spec]
    [curbside.bandit.stats :as stats]))
 
-(defmulti arm-selection-probabilities*
+(defmulti ^:private arm-selection-probabilities*
   (fn [storage-backend learner]
     (::spec/learner-algo learner)))
 
-(defmulti choose*
+(defmulti ^:private choose*
   "Chooses an ::spec/arm-name for the given learner. See documentation of
    [[choose]] for details."
   (fn [storage-backend learner arm-states params]
     (::spec/learner-algo learner)))
 
-(defn arm-states->arm-means
+(defn- arm-states->arm-means
   "Computes the mean reward of each arm."
   [arm-states]
   (fmap :mean-reward arm-states))
 
-(defn arm-states->unrewarded-arm-names
+(defn- arm-states->unrewarded-arm-names
   "Returns all arm names that have not yet received a reward."
   [arm-states]
   (sort
@@ -83,7 +86,7 @@
          :when (= 1 n)]
      arm-name)))
 
-(defn choose-epsilon-greedy
+(defn- choose-epsilon-greedy
   "Chooses an arm according to the epsilon-greedy algorithm -- chooses the
    best arm with probability (1 - epsilon). Otherwise, chooses a random arm."
   [arm-means {::spec/keys [epsilon maximize?]}]
@@ -119,7 +122,7 @@
            (/ epsilon k)))
        arm-means))))
 
-(defn choose-round-robin
+(defn- choose-round-robin
   "Chooses an arm-name in round-robin order."
   [arm-names call-count]
   (let [k (count arm-names)]
@@ -137,7 +140,7 @@
                                    n)))]
               [arm-name ((if maximize? + -) mean-reward const)])))))
 
-(defn choose-ucb1
+(defn- choose-ucb1
   "Chooses an arm using the upper confidence bound algorithm. This chooses the
    arm that maximizes the expected reward, where the expected reward of the arm
    is defined as the historical mean reward of the arm, plus a constant
@@ -237,7 +240,7 @@
                       adjusted-values)]
     softmax))
 
-(defn choose-softmax
+(defn- choose-softmax
   "Softmax arm selection. Begins by choosing arms randomly with roughly equal
    probability. As time passes, begins to choose the best arm with increasing
    probability. The speed of convergence is based on the temperature parameter,
@@ -278,7 +281,7 @@
         softmaxes
         (stats/flip-probabilities softmaxes)))))
 
-(defmulti reward*
+(defmulti ^:private reward*
   "Updates the learner state with the given reward. See [[reward]] for details."
   (fn [storage-backend learner reward]
     (::spec/learner-algo learner)))
@@ -293,7 +296,7 @@
                        arm-name
                        reward-value))
 
-(defmulti create-arm*
+(defmulti ^:private create-arm*
   "Creates a new arm for the given experiment. See [[create-arm]] for details."
   (fn [storage-backend learner arm-name]
     (::spec/learner-algo learner)))
@@ -302,7 +305,7 @@
   [storage-backend learner arm-name]
   (state/create-arm storage-backend learner arm-name))
 
-(defmulti delete-arm*
+(defmulti ^:private delete-arm*
   "Deletes an arm for the given experiement. See [[delete-arm]] for details."
   (fn [storage-backend learner arm-name]
     (::spec/learner-algo learner)))
@@ -312,7 +315,13 @@
   (state/delete-arm storage-backend learner arm-name))
 
 (defn arm-selection-probabilities
-  "Reports the current probability that each arm will be chosen."
+  "Reports the current probability that each arm will be chosen. This can be
+   used for diagnostic and reporting purposes. Example invocation:
+   ```
+   (arm-selection-probabilities backend-atom
+                                {::spec/learner-algo ::spec/ucb1
+                                 ::spec/experiment-name \"exp\"})
+   ```"
   [storage-backend learner-info]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
   {:post [map?]}
@@ -322,7 +331,8 @@
   "Asks the learner to choose an arm. Returns an arm-name string.
    Example invocation:
    ```
-   (choose {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"})
+   (choose backend-atom
+           {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"})
    ```"
   [storage-backend {::spec/keys [experiment-name] :as learner-info}]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
@@ -336,7 +346,8 @@
 (defn reward
   "Gives a learner the reward for a particular arm. Example invocation:
    ```
-   (reward {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
+   (reward backend-atom
+           {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
            {::spec/reward-value 12.5 ::spec/arm-name \"arm1\"})
    ```
    If the arm does not exist, the reward is ignored. This behavior was chosen
@@ -353,11 +364,12 @@
    supply the number of rewards, the mean of the rewards, and the variance of
    the rewards. Example invocation:
    ```
-   (bulk-reward {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
-            {::spec/bulk-reward-mean 12.5
-             ::spec/bulk-reward-count 10
-             ::spec/bulk-reward-max 15
-             ::spec/arm-name \"arm1\"})
+   (bulk-reward backend-atom
+                {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
+                {::spec/bulk-reward-mean 12.5
+                 ::spec/bulk-reward-count 10
+                 ::spec/bulk-reward-max 15
+                 ::spec/arm-name \"arm1\"})
    ```"
   [storage-backend learner-info bulk-reward]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)
@@ -373,7 +385,9 @@
    (init (atom {})
          {::spec/learner-algo ::spec/ucb1
           ::spec/experiment-name \"exp\"
-          ::spec/arm-names [\"arm1\" \"arm2\" \"arm3\"]})
+          ::spec/arm-names [\"arm1\" \"arm2\" \"arm3\"]
+          ::spec/algo-params {::spec/learner-algo ::spec/ucb1
+                              ::spec/maximize? true}})
    ```"
   [storage-backend learner]
   {:pre [(spec/check ::spec/learner learner)]}
@@ -383,7 +397,8 @@
   "Adds a new arm to the set of arms the learner can return from `choose`
    calls. Example invocation:
    ```
-   (create-arm {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
+   (create-arm backend-atom
+               {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
                \"cool-new-arm\")
    ```"
   [storage-backend learner-info arm-name]
@@ -395,7 +410,8 @@
   "Removes an arm from the set of arms the learner can return from `choose`
    calls. All learner-specific state for the arm is deleted. Example invocation:
    ```
-   (delete-arm {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
+   (delete-arm backend-atom
+               {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
                \"cool-new-arm\")
    ```"
   [storage-backend learner-info arm-name]
@@ -405,7 +421,11 @@
 
 (defn get-arm-states
   "Gets the state of all arms for the given learner. This can be used to create
-   reports or summaries of bandit results."
+   reports or summaries of bandit results. Example invocation:
+   ```
+   (get-arm-states backend-atom
+                   {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp \"})
+   ```"
   [storage-backend learner-info]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
   (state/get-arm-states storage-backend (::spec/experiment-name learner-info)))

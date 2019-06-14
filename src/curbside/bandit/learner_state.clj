@@ -79,7 +79,7 @@
   [conn experiment-name]
   (wcar conn (car/smembers (arm-names-key experiment-name))))
 
-(defn redis-get-arm-state
+(defn- redis-get-arm-state
   [conn experiment-name arm-name]
   (let [k (arm-state-key experiment-name arm-name)]
     (->> (wcar conn (car/hgetall k))
@@ -110,7 +110,7 @@
   (fn [backend experiment-name arm-name reward]
     (type backend)))
 
-(defn record-reward*
+(defn- record-reward*
   "Updates an arm's reward state using Welford's Algorithm."
   [reward max-reward {:keys [mean-reward n deleted?] :as old-arm-state}]
   (let [new-max-reward (max reward max-reward)
@@ -305,9 +305,9 @@
   (fn [backend learner arm-name]
     (type backend)))
 
-(def default-arm-state {:n 1
-                        :mean-reward 0.0
-                        :deleted? false})
+(def ^:private default-arm-state {:n 1
+                                  :mean-reward 0.0
+                                  :deleted? false})
 
 (defmethod create-arm clojure.lang.Atom
   [backend {::spec/keys [experiment-name]} arm-name]

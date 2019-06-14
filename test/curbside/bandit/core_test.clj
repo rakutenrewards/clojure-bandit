@@ -497,7 +497,7 @@
                  :less-explored-bigger-reward   {:n 10  :mean-reward 0.5}}]
     (testing "When maximizing, the less explored arm with large reward is chosen"
       (is (= :less-explored-bigger-reward
-             (bandit/choose-ucb1 state-1 {::spec/maximize? true}))))
+             (#'bandit/choose-ucb1 state-1 {::spec/maximize? true}))))
     (testing "When minimizing, the less explored arm with large reward is chosen"
       (is (= :less-explored-bigger-reward
-             (bandit/choose-ucb1 state-1 {::spec/maximize? false}))))))
+             (#'bandit/choose-ucb1 state-1 {::spec/maximize? false}))))))

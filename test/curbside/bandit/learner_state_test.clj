@@ -22,7 +22,7 @@
                    ::spec/arm-names ["arm1" "arm2"]
                    ::spec/experiment-name "test-learner"})
 
-(def default-arm-state (dissoc state/default-arm-state :deleted?))
+(def default-arm-state (dissoc (deref #'state/default-arm-state) :deleted?))
 
 (defn test-init-backend
   [backend]
