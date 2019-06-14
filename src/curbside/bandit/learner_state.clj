@@ -433,3 +433,17 @@
 (defmethod incr-choose-calls carmine-conn-type
   [conn experiment-name]
   (wcar conn (car/incr (choose-count-key experiment-name))))
+
+(defmulti get-choose-calls
+  (fn [backend _experiment-name]
+    (type backend)))
+
+(defmethod get-choose-calls clojure.lang.Atom
+  [backend experiment-name]
+  (let [path [experiment-name :choose-count]]
+    (get-in @backend path)))
+
+(defmethod get-choose-calls carmine-conn-type
+  [conn experiment-name]
+  (ext/parse-int
+   (wcar conn (car/get (choose-count-key experiment-name)))))

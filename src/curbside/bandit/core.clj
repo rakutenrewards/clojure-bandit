@@ -99,7 +99,6 @@
 
 (defmethod choose* ::spec/epsilon-greedy
   [storage-backend learner arm-states params]
-  (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
   (choose-epsilon-greedy (arm-states->arm-means arm-states) params))
 
 (defmethod arm-selection-probabilities* ::spec/epsilon-greedy
@@ -153,8 +152,8 @@
 
 (defmethod choose* ::spec/ucb1
   [storage-backend learner arm-states params]
-  (let [call-count (state/incr-choose-calls storage-backend
-                                            (::spec/experiment-name learner))
+  (let [call-count (state/get-choose-calls storage-backend
+                                           (::spec/experiment-name learner))
         unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
         k (count arm-states)
         num-unrewarded (count unrewarded-arms)]
@@ -184,8 +183,8 @@
     (let [{::spec/keys [maximize?]}
           (state/get-learner-params storage-backend
                                     experiment-name)
-          call-count (state/incr-choose-calls storage-backend
-                                              experiment-name)
+          call-count (state/get-choose-calls storage-backend
+                                             experiment-name)
           unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
           k (count arm-states)
           num-unrewarded (count unrewarded-arms)]
@@ -210,7 +209,6 @@
 
 (defmethod choose* ::spec/random
   [storage-backend learner arm-states _params]
-  (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
   (nth (keys arm-states) (rand-int (count arm-states))))
 
 (defmethod arm-selection-probabilities* ::spec/random
@@ -266,7 +264,6 @@
 
 (defmethod choose* ::spec/softmax
   [storage-backend learner arm-states params]
-  (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
   (choose-softmax arm-states params))
 
 (defmethod arm-selection-probabilities* ::spec/softmax
@@ -332,6 +329,7 @@
   {:post [string?]}
   (when-let [arm-states (not-empty
                          (state/get-arm-states storage-backend experiment-name))]
+    (state/incr-choose-calls storage-backend experiment-name)
     (let [params (state/get-learner-params storage-backend experiment-name)]
       (choose* storage-backend learner-info arm-states params))))
 
