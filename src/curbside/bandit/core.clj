@@ -67,7 +67,7 @@
 (defmulti choose*
   "Chooses an ::spec/arm-name for the given learner. See documentation of
    [[choose]] for details."
-  (fn [storage-backend learner]
+  (fn [storage-backend learner arm-states params]
     (::spec/learner-algo learner)))
 
 (defn arm-states->arm-means
@@ -98,15 +98,9 @@
     (if (< (rand) threshold) best-arm rand-arm)))
 
 (defmethod choose* ::spec/epsilon-greedy
-  [storage-backend learner]
-  ;; TODO: it is likely that all choose* implementations will look like this, in
-  ;; which case we don't need the state-fetching step in the multimethod.
-  (let [arm-states (state/get-arm-states storage-backend
-                                         (::spec/experiment-name learner))
-        params (state/get-learner-params storage-backend
-                                         (::spec/experiment-name learner))]
-    (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
-    (choose-epsilon-greedy (arm-states->arm-means arm-states) params)))
+  [storage-backend learner arm-states params]
+  (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
+  (choose-epsilon-greedy (arm-states->arm-means arm-states) params))
 
 (defmethod arm-selection-probabilities* ::spec/epsilon-greedy
   [storage-backend {::spec/keys [experiment-name]}]
@@ -158,34 +152,29 @@
     best-arm))
 
 (defmethod choose* ::spec/ucb1
-  [storage-backend learner]
-  (when-let [arm-states (not-empty
-                         (state/get-arm-states storage-backend
-                                               (::spec/experiment-name learner)))]
-    (let [params (state/get-learner-params storage-backend
-                                           (::spec/experiment-name learner))
-          call-count (state/incr-choose-calls storage-backend
-                                              (::spec/experiment-name learner))
-          unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
-          k (count arm-states)
-          num-unrewarded (count unrewarded-arms)]
-      (assert k)
-      (assert num-unrewarded)
-      (assert call-count)
-      (cond
-        ;; If we haven't received any rewards yet, round-robin between arms.
-        ;; This helps us converge faster when rewards are delayed.
-        (= num-unrewarded k)
-        (choose-round-robin unrewarded-arms call-count)
+  [storage-backend learner arm-states params]
+  (let [call-count (state/incr-choose-calls storage-backend
+                                            (::spec/experiment-name learner))
+        unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
+        k (count arm-states)
+        num-unrewarded (count unrewarded-arms)]
+    (assert k)
+    (assert num-unrewarded)
+    (assert call-count)
+    (cond
+      ;; If we haven't received any rewards yet, round-robin between arms.
+      ;; This helps us converge faster when rewards are delayed.
+      (= num-unrewarded k)
+      (choose-round-robin unrewarded-arms call-count)
 
-        ;; If a new arm has been added, choose it 1 out of k times.
-        (and (> num-unrewarded 0)
-             (< (mod call-count k) num-unrewarded))
-        (choose-round-robin unrewarded-arms call-count)
+      ;; If a new arm has been added, choose it 1 out of k times.
+      (and (> num-unrewarded 0)
+           (< (mod call-count k) num-unrewarded))
+      (choose-round-robin unrewarded-arms call-count)
 
-        ;; Otherwise, use standard UCB1 behavior.
-        :else
-        (choose-ucb1 arm-states params)))))
+      ;; Otherwise, use standard UCB1 behavior.
+      :else
+      (choose-ucb1 arm-states params))))
 
 (defmethod arm-selection-probabilities* ::spec/ucb1
   [storage-backend {::spec/keys [experiment-name]}]
@@ -220,12 +209,9 @@
            arm-states))))))
 
 (defmethod choose* ::spec/random
-  [storage-backend learner]
-  (when-let [arm-states (not-empty
-                         (state/get-arm-states storage-backend
-                                               (::spec/experiment-name learner)))]
-    (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
-    (nth (keys arm-states) (rand-int (count arm-states)))))
+  [storage-backend learner arm-states _params]
+  (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
+  (nth (keys arm-states) (rand-int (count arm-states))))
 
 (defmethod arm-selection-probabilities* ::spec/random
   [storage-backend learner]
@@ -279,14 +265,9 @@
     best-arm))
 
 (defmethod choose* ::spec/softmax
-  [storage-backend learner]
-  (when-let [arm-states (not-empty
-                         (state/get-arm-states storage-backend
-                                               (::spec/experiment-name learner)))]
-    (let [params (state/get-learner-params storage-backend
-                                           (::spec/experiment-name learner))]
-      (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
-      (choose-softmax arm-states params))))
+  [storage-backend learner arm-states params]
+  (state/incr-choose-calls storage-backend (::spec/experiment-name learner))
+  (choose-softmax arm-states params))
 
 (defmethod arm-selection-probabilities* ::spec/softmax
   [storage-backend {::spec/keys [experiment-name] :as learner}]
@@ -340,20 +321,19 @@
   {:post [map?]}
   (arm-selection-probabilities* storage-backend learner-info))
 
-;; TODO: real code will pass in just the experiment-name and look up learner
-;; from storage-backend.
-;; TODO: if this service ends up needing multiple external services, use
-;; integrant.
 (defn choose
   "Asks the learner to choose an arm. Returns an arm-name string.
    Example invocation:
    ```
    (choose {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"})
    ```"
-  [storage-backend learner-info]
+  [storage-backend {::spec/keys [experiment-name] :as learner-info}]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
   {:post [string?]}
-  (choose* storage-backend learner-info))
+  (when-let [arm-states (not-empty
+                         (state/get-arm-states storage-backend experiment-name))]
+    (let [params (state/get-learner-params storage-backend experiment-name)]
+      (choose* storage-backend learner-info arm-states params))))
 
 (defn reward
   "Gives a learner the reward for a particular arm. Example invocation:
