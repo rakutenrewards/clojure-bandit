@@ -137,9 +137,7 @@
                (-> b
                    (assoc-in [experiment-name :max-reward] new-max-reward)
                    (assoc-in [experiment-name :arm-states arm-name] new-state)))
-             (do
-               ;; TODO: log error or throw exception if arm not found?
-               b)))))
+             b))))
 
 ;; Note: this uses a lua script to ensure that all the steps of Welford's
 ;; algorithm are performed atomically.
@@ -246,9 +244,7 @@
                (-> b
                    (assoc-in [experiment-name :max-reward] new-max-reward)
                    (assoc-in [experiment-name :arm-states arm-name] new-state)))
-             (do
-               ;; TODO: log error or throw exception?
-               b)))))
+             b))))
 
 (defmethod bulk-reward carmine-conn-type
   [backend experiment-name arm-name {::spec/keys [bulk-reward-mean

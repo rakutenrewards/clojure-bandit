@@ -338,7 +338,11 @@
    ```
    (reward {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
            {::spec/reward-value 12.5 ::spec/arm-name \"arm1\"})
-   ```"
+   ```
+   If the arm does not exist, the reward is ignored. This behavior was chosen
+   because we are often adding and removing arms, but our reward feedback loop
+   is delayed, so it's normal for us to receive rewards for an arm that has
+   already been removed."
   [storage-backend learner-info reward]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)
          (spec/check ::spec/reward reward)]}
