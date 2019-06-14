@@ -155,7 +155,7 @@
 
 (defmethod choose* ::spec/ucb1
   [storage-backend learner arm-states params]
-  (let [call-count (state/get-choose-calls storage-backend
+  (let [call-count (state/get-choose-count storage-backend
                                            (::spec/experiment-name learner))
         unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
         k (count arm-states)
@@ -186,7 +186,7 @@
     (let [{::spec/keys [maximize?]}
           (state/get-learner-params storage-backend
                                     experiment-name)
-          call-count (state/get-choose-calls storage-backend
+          call-count (state/get-choose-count storage-backend
                                              experiment-name)
           unrewarded-arms (arm-states->unrewarded-arm-names arm-states)
           k (count arm-states)
@@ -339,7 +339,7 @@
   {:post [string?]}
   (when-let [arm-states (not-empty
                          (state/get-arm-states storage-backend experiment-name))]
-    (state/incr-choose-calls storage-backend experiment-name)
+    (state/incr-choose-count storage-backend experiment-name)
     (let [params (state/get-learner-params storage-backend experiment-name)]
       (choose* storage-backend learner-info arm-states params))))
 

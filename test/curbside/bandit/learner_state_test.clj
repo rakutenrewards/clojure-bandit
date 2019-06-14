@@ -104,9 +104,9 @@
   (testing backend-name
     (state/init-experiment backend test-learner)
     (let [experiment-name (::spec/experiment-name test-learner)
-          first-get-result (state/get-choose-calls backend experiment-name)
-          incr-result (state/incr-choose-calls backend experiment-name)
-          get-result (state/get-choose-calls backend experiment-name)]
+          first-get-result (state/get-choose-count backend experiment-name)
+          incr-result (state/incr-choose-count backend experiment-name)
+          get-result (state/get-choose-count backend experiment-name)]
       (is (zero? first-get-result))
       (is (= 1 incr-result))
       (is (= 1 get-result)))))

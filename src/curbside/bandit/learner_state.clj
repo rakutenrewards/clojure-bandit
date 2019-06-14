@@ -414,32 +414,34 @@
         (car/hmset (arm-state-key experiment-name arm-name) "deleted?" true)
         (car/exec)))
 
-(defmulti incr-choose-calls
+(defmulti incr-choose-count
   "Increments a counter which represents the number of times `choose` has
    been called on the given experiment name. Returns the new count, after
    it has been incremented."
   (fn [backend experiment-name]
     (type backend)))
 
-(defmethod incr-choose-calls clojure.lang.Atom
+(defmethod incr-choose-count clojure.lang.Atom
   [backend experiment-name]
   (let [path [experiment-name :choose-count]]
     (get-in (swap! backend update-in path inc) path)))
 
-(defmethod incr-choose-calls carmine-conn-type
+(defmethod incr-choose-count carmine-conn-type
   [conn experiment-name]
   (wcar conn (car/incr (choose-count-key experiment-name))))
 
-(defmulti get-choose-calls
+(defmulti get-choose-count
+  "Gets the current number of times `choose` has been called on the given
+   experiment name."
   (fn [backend _experiment-name]
     (type backend)))
 
-(defmethod get-choose-calls clojure.lang.Atom
+(defmethod get-choose-count clojure.lang.Atom
   [backend experiment-name]
   (let [path [experiment-name :choose-count]]
     (get-in @backend path)))
 
-(defmethod get-choose-calls carmine-conn-type
+(defmethod get-choose-count carmine-conn-type
   [conn experiment-name]
   (ext/parse-int
    (wcar conn (car/get (choose-count-key experiment-name)))))
