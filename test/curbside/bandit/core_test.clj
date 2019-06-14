@@ -71,7 +71,6 @@
 
 (defn non-stationary-sample
   [i n params]
-  ;; TODO: parametrize on distribution type
   (draw (normal (interpolate-params i n params))))
 
 (defn non-stationary-problem
