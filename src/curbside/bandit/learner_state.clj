@@ -50,7 +50,7 @@
 (defmulti get-arm-states
   "Gets the state of all arms for the given experiment. The shape of the
    state structure depends on the learner-algorithm."
-  (fn [backend experiment-name]
+  (fn [backend _experiment-name]
     (type backend)))
 
 (defn- remove-deleted-arms
@@ -58,7 +58,7 @@
    soft-deleted."
   [arm-states]
   (->> arm-states
-       (filter (fn [[k v]] (not (:deleted? v))))
+       (filter (fn [[_ v]] (not (:deleted? v))))
        (into {})
        (fmap #(dissoc % :deleted?))))
 
@@ -107,12 +107,12 @@
 
    Note: rewards are scaled to be between 0 and 1.0 before being recorded. This
    is needed for UCB1."
-  (fn [backend experiment-name arm-name reward]
+  (fn [backend _experiment-name _arm-name _reward]
     (type backend)))
 
 (defn- record-reward*
   "Updates an arm's reward state using Welford's Algorithm."
-  [reward max-reward {:keys [mean-reward n deleted?] :as old-arm-state}]
+  [reward max-reward {:keys [mean-reward n deleted?] :as _old-arm-state}]
   (let [new-max-reward (max reward max-reward)
         scaled-reward (/ reward new-max-reward)
         delta (- scaled-reward mean-reward)
@@ -206,18 +206,18 @@
    is 1.0. Furthermore, there will be infinitely many additional rewards after
    we've seen the global maximum, so we are guaranteed to eventually converge
    on the true scaled mean."
-  (fn [backend experiment-name arm-name reward]
+  (fn [backend _experiment-name _arm-name _reward]
     (type backend)))
 
 (defn- bulk-reward*
   [{::spec/keys [bulk-reward-mean
                  bulk-reward-count
                  bulk-reward-max]
-    :as bulk-reward}
+    :as _bulk-reward}
    old-max-reward
    {old-mean-reward :mean-reward
     old-n :n
-    :as old-arm-state}]
+    :as _old-arm-state}]
   (let [new-n (+ old-n bulk-reward-count)
         new-max-reward (max old-max-reward bulk-reward-max)
         scaled-bulk-reward-mean (/ bulk-reward-mean new-max-reward)
@@ -278,7 +278,7 @@
 
 (defmulti get-learner-params
   "Get the parameters of the learner."
-  (fn [backend experiment-name]
+  (fn [backend _experiment-name]
     (type backend)))
 
 (defmethod get-learner-params clojure.lang.Atom
@@ -302,7 +302,7 @@
 
 (defmulti create-arm
   "Adds an arm to an existing experiment."
-  (fn [backend learner arm-name]
+  (fn [backend _learner _arm-name]
     (type backend)))
 
 (def ^:private default-arm-state {:n 1
@@ -344,7 +344,7 @@
 
 (defmulti exists?
   "Returns true if an experiment exists."
-  (fn [backend learner]
+  (fn [backend _learner]
     (type backend)))
 
 (defmethod exists? clojure.lang.Atom
@@ -363,12 +363,11 @@
 
 (defmulti init-experiment
   "Initialize a new learner for a new experiment."
-  (fn [backend learner]
+  (fn [backend _learner]
     (type backend)))
 
 (defmethod init-experiment clojure.lang.Atom
-  [backend {::spec/keys [learner-algo algo-params
-                         arm-names experiment-name]
+  [backend {::spec/keys [algo-params arm-names experiment-name]
             :as learner-map}]
   (when-not (exists? backend learner-map)
     (let [arm-states (into {} (for [arm-name arm-names]
@@ -382,8 +381,7 @@
                    (assoc-in [experiment-name :choose-count] 0)))))))
 
 (defmethod init-experiment carmine-conn-type
-  [conn {::spec/keys [learner-algo algo-params
-                      arm-names experiment-name]
+  [conn {::spec/keys [algo-params arm-names experiment-name]
          :as learner-map}]
   (when-not (exists? conn learner-map)
     (wcar conn
@@ -398,7 +396,7 @@
 
 (defmulti delete-arm
   "Deletes an arm from an existing experiment."
-  (fn [backend learner arm-name]
+  (fn [backend _learner _arm-name]
     (type backend)))
 
 (defmethod delete-arm clojure.lang.Atom
@@ -418,7 +416,7 @@
   "Increments a counter which represents the number of times `choose` has
    been called on the given experiment name. Returns the new count, after
    it has been incremented."
-  (fn [backend experiment-name]
+  (fn [backend _experiment-name]
     (type backend)))
 
 (defmethod incr-choose-count clojure.lang.Atom

@@ -64,13 +64,13 @@
    [curbside.bandit.stats :as stats]))
 
 (defmulti ^:private arm-selection-probabilities*
-  (fn [storage-backend learner]
+  (fn [_storage-backend learner]
     (::spec/learner-algo learner)))
 
 (defmulti ^:private choose*
   "Chooses an ::spec/arm-name for the given learner. See documentation of
    [[choose]] for details."
-  (fn [storage-backend learner arm-states params]
+  (fn [_storage-backend learner _arm-states _params]
     (::spec/learner-algo learner)))
 
 (defn- arm-states->arm-means
@@ -101,7 +101,7 @@
     (if (< (rand) threshold) best-arm rand-arm)))
 
 (defmethod choose* ::spec/epsilon-greedy
-  [storage-backend learner arm-states params]
+  [_storage-backend _learner arm-states params]
   (choose-epsilon-greedy (arm-states->arm-means arm-states) params))
 
 (defmethod arm-selection-probabilities* ::spec/epsilon-greedy
@@ -147,8 +147,7 @@
    exploration term."
   [arm-states {::spec/keys [maximize?] :as params}]
   {:pre [(not (nil? maximize?))]}
-  (let [total-iterations (reduce + (map (comp :n val) arm-states))
-        ucbs (upper-confidence-bounds arm-states params)
+  (let [ucbs (upper-confidence-bounds arm-states params)
         best-key (if maximize? max-key min-key)
         best-arm (key (apply best-key val ucbs))]
     best-arm))
@@ -211,7 +210,7 @@
            arm-states))))))
 
 (defmethod choose* ::spec/random
-  [storage-backend learner arm-states _params]
+  [_storage-backend _learner arm-states _params]
   (nth (keys arm-states) (rand-int (count arm-states))))
 
 (defmethod arm-selection-probabilities* ::spec/random
@@ -225,8 +224,7 @@
 (defn- arm-states->softmax
   [arm-states {::spec/keys [starting-temperature
                             temp-decay-per-step
-                            min-temperature
-                            maximize?]}]
+                            min-temperature]}]
   {:pre [starting-temperature temp-decay-per-step min-temperature]}
   (let [arm-means (arm-states->arm-means arm-states)
         total-iterations (reduce + (map (comp :n val) arm-states))
@@ -266,11 +264,11 @@
     best-arm))
 
 (defmethod choose* ::spec/softmax
-  [storage-backend learner arm-states params]
+  [_storage-backend _learner arm-states params]
   (choose-softmax arm-states params))
 
 (defmethod arm-selection-probabilities* ::spec/softmax
-  [storage-backend {::spec/keys [experiment-name] :as learner}]
+  [storage-backend {::spec/keys [experiment-name] :as _learner}]
   (when-let [arm-states (not-empty
                          (state/get-arm-states storage-backend
                                                experiment-name))]
@@ -283,7 +281,7 @@
 
 (defmulti ^:private reward*
   "Updates the learner state with the given reward. See [[reward]] for details."
-  (fn [storage-backend learner reward]
+  (fn [_storage-backend learner _reward]
     (::spec/learner-algo learner)))
 
 (defmethod reward* ::spec/random
@@ -298,7 +296,7 @@
 
 (defmulti ^:private create-arm*
   "Creates a new arm for the given experiment. See [[create-arm]] for details."
-  (fn [storage-backend learner arm-name]
+  (fn [_storage-backend learner _arm-name]
     (::spec/learner-algo learner)))
 
 (defmethod create-arm* :default
@@ -307,7 +305,7 @@
 
 (defmulti ^:private delete-arm*
   "Deletes an arm for the given experiement. See [[delete-arm]] for details."
-  (fn [storage-backend learner arm-name]
+  (fn [_storage-backend learner _arm-name]
     (::spec/learner-algo learner)))
 
 (defmethod delete-arm* :default
@@ -323,8 +321,8 @@
                                  ::spec/experiment-name \"exp\"})
    ```"
   [storage-backend learner-info]
-  {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
-  {:post [map?]}
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)]
+   :post [(map? %)]}
   (arm-selection-probabilities* storage-backend learner-info))
 
 (defn choose
@@ -335,8 +333,8 @@
            {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"})
    ```"
   [storage-backend {::spec/keys [experiment-name] :as learner-info}]
-  {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
-  {:post [string?]}
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)]
+   :post [(or (nil? %) (string? %))]}
   (when-let [arm-states (not-empty
                          (state/get-arm-states storage-backend experiment-name))]
     (state/incr-choose-count storage-backend experiment-name)

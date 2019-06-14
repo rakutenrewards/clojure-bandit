@@ -8,10 +8,10 @@
 (def redis-conn {:pool {} :spec {:uri "redis://localhost:6379/13"}})
 
 (use-fixtures :each
-  (fn [test]
+  (fn [run-test]
     (wcar redis-conn
           (car/flushdb))
-    (test)))
+    (run-test)))
 
 (def test-learner {::spec/learner-algo ::spec/epsilon-greedy
                    ::spec/algo-params {::spec/epsilon 0.05
