@@ -8,10 +8,10 @@
 (def redis-conn {:pool {} :spec {:uri "redis://localhost:6379/13"}})
 
 (use-fixtures :each
-  (fn [test]
+  (fn [run-test]
     (wcar redis-conn
           (car/flushdb))
-    (test)))
+    (run-test)))
 
 (def test-learner {::spec/learner-algo ::spec/epsilon-greedy
                    ::spec/algo-params {::spec/epsilon 0.05
@@ -22,7 +22,7 @@
                    ::spec/arm-names ["arm1" "arm2"]
                    ::spec/experiment-name "test-learner"})
 
-(def default-arm-state (dissoc state/default-arm-state :deleted?))
+(def default-arm-state (dissoc (deref #'state/default-arm-state) :deleted?))
 
 (defn test-init-backend
   [backend]
@@ -98,3 +98,19 @@
 (deftest test-arm-crud
   (test-arm-crud-backend (atom {}) "ATOM:")
   (test-arm-crud-backend redis-conn "REDIS:"))
+
+(defn test-choose-call-counter-backend
+  [backend backend-name]
+  (testing backend-name
+    (state/init-experiment backend test-learner)
+    (let [experiment-name (::spec/experiment-name test-learner)
+          first-get-result (state/get-choose-count backend experiment-name)
+          incr-result (state/incr-choose-count backend experiment-name)
+          get-result (state/get-choose-count backend experiment-name)]
+      (is (zero? first-get-result))
+      (is (= 1 incr-result))
+      (is (= 1 get-result)))))
+
+(deftest test-choose-call-counter
+  (test-choose-call-counter-backend (atom {}) "ATOM:")
+  (test-choose-call-counter-backend redis-conn "REDIS:"))

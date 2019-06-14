@@ -9,7 +9,6 @@
    [curbside.bandit.core :as bandit]
    [curbside.bandit.ext :as ext]
    [curbside.bandit.spec :as spec]
-   [curbside.bandit.stats :as stats]
    [kixi.stats.distribution :refer [draw sample normal]]
    [taoensso.carmine :as car :refer (wcar)])
   (:import
@@ -22,10 +21,10 @@
   (< (abs (- x y)) eps))
 
 (use-fixtures :each
-  (fn [test]
+  (fn [run-test]
     (wcar redis-conn
           (car/flushdb))
-    (test)))
+    (run-test)))
 
 (defn bulkify-rewards
   "Given a collection of ::spec/reward, return one ::spec/bulk-reward. Used to
@@ -71,7 +70,6 @@
 
 (defn non-stationary-sample
   [i n params]
-  ;; TODO: parametrize on distribution type
   (draw (normal (interpolate-params i n params))))
 
 (defn non-stationary-problem
@@ -176,11 +174,12 @@
                 (recur choices (pop new-queue) remaining-delay new-result (inc t)))
 
               (and bulk-rewards? (= 0 (mod t reward-delay)))
-              (let [rewards (take reward-delay new-queue)]
-                (doall
-                 (for [[_ batch] (group-by ::spec/arm-name rewards)]
-                   (let [bulk-reward (bulkify-rewards batch)]
-                     (bandit/bulk-reward backend learner bulk-reward))))
+              (let [rewards (take reward-delay new-queue)
+                    _ ;;executed for side effects
+                    (doall
+                     (for [[_ batch] (group-by ::spec/arm-name rewards)]
+                       (let [bulk-reward (bulkify-rewards batch)]
+                         (bandit/bulk-reward backend learner bulk-reward))))]
                 (recur choices
                        (ext/pop-n reward-delay new-queue)
                        remaining-delay
@@ -191,11 +190,11 @@
               (recur choices new-queue (dec remaining-delay) new-result (inc t)))))))))
 
 (defn total-reward
-  [{:keys [time-series maximize?] :as _problem} chosen-indices]
+  [{:keys [time-series] :as _problem} chosen-indices]
   (reduce + (map nth time-series chosen-indices)))
 
 (defn cumulative-reward
-  [{:keys [time-series maximize?] :as _problem} chosen-indices]
+  [{:keys [time-series] :as _problem} chosen-indices]
   (reductions + (map nth time-series chosen-indices)))
 
 (defn total-regret
@@ -283,8 +282,7 @@
             chosen-histogram (group-by identity chosen)
             chosen-frequencies (fmap #(double (/ (count %) n)) chosen-histogram)
             probabilities (bandit/arm-selection-probabilities
-                           backend learner)
-            arm-states (bandit/get-arm-states backend learner)]
+                           backend learner)]
         (doseq [arm-name ["1" "2" "3"]]
           (testing (str arm-name
                         " chosen frequency approximates expectation for "
@@ -453,8 +451,8 @@
       (bandit/bulk-reward backend bulk-learner bulk-reward)
       (bandit/bulk-reward backend bulk-learner2 bulk-reward2-1)
       (bandit/bulk-reward backend bulk-learner2 bulk-reward2-2)
-      (doall (map #(bandit/reward backend learner %) rewards))
-      (let [learner-state (get (bandit/get-arm-states backend learner) "arm1")
+      (let [_ (doall (map #(bandit/reward backend learner %) rewards))
+            learner-state (get (bandit/get-arm-states backend learner) "arm1")
             bulk-learner-state (get (bandit/get-arm-states backend bulk-learner)
                                     "arm1")
             bulk-learner2-state (get (bandit/get-arm-states backend bulk-learner)
@@ -497,7 +495,7 @@
                  :less-explored-bigger-reward   {:n 10  :mean-reward 0.5}}]
     (testing "When maximizing, the less explored arm with large reward is chosen"
       (is (= :less-explored-bigger-reward
-             (bandit/choose-ucb1 state-1 {::spec/maximize? true}))))
+             (#'bandit/choose-ucb1 state-1 {::spec/maximize? true}))))
     (testing "When minimizing, the less explored arm with large reward is chosen"
       (is (= :less-explored-bigger-reward
-             (bandit/choose-ucb1 state-1 {::spec/maximize? false}))))))
+             (#'bandit/choose-ucb1 state-1 {::spec/maximize? false}))))))

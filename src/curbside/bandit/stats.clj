@@ -15,7 +15,7 @@
         rand-val (rand 1.0)
         chosen-index (->> cumulative-probs
                           (map (fn [i p] [i p]) (range))
-                          (filter (fn [[i p]] (< rand-val p)))
+                          (filter (fn [[_ p]] (< rand-val p)))
                           first
                           first)]
     (first (nth sorted-probs chosen-index))))

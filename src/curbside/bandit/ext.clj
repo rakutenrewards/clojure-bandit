@@ -5,12 +5,14 @@
    (clojure.lang MapEntry)))
 
 (defn stringify-keys
+  "Converts the keys of the given map to strings."
   [m]
   (into {}
         (for [[k v] m]
           [(name k) v])))
 
 (defn keywordify-keys
+  "Converts the keys of the given map to keywords."
   ([m]
    (keywordify-keys nil m))
   ([namespace m]
