@@ -9,7 +9,9 @@
                  [org.clojure/math.numeric-tower "0.0.4"]
                  [org.clojure/algo.generic "0.1.3"]
                  [com.taoensso/carmine "2.19.1"]]
-  :profiles {:dev {:jvm-opts ["-Xmx14G"]}}
+  :profiles {:dev {:jvm-opts ["-Xmx14G"]}
+             :ci [:test
+                  {:plugins [[test2junit "1.3.3"]]}]}
   :jvm-opts ["-XX:+UseG1GC"]
   :plugins [[lein-codox "0.10.6"]
             [lein-release "1.0.5"]]
