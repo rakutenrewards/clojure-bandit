@@ -6,7 +6,7 @@
 (defn check [type data]
   (if (spec/valid? type data)
     true
-    (throw (IllegalArgumentException. (expound/expound-str type data)))))
+    (throw (IllegalArgumentException. ^String (expound/expound-str type data)))))
 
 (spec/def ::finite-double
   (spec/and number?

@@ -1,17 +1,18 @@
 (ns curbside.bandit.core-test
   (:require
    [clojure.algo.generic.functor :refer [fmap]]
-   [clojure.data.csv :as csv]
    [clojure.core.match :refer [match]]
+   [clojure.data.csv :as csv]
    [clojure.java.io :as io]
    [clojure.math.numeric-tower :refer [abs]]
    [clojure.test :refer :all]
    [curbside.bandit.core :as bandit]
    [curbside.bandit.ext :as ext]
    [curbside.bandit.spec :as spec]
-   [kixi.stats.distribution :refer [draw sample normal]]
-   [taoensso.carmine :as car :refer (wcar)])
+   [kixi.stats.distribution :refer [draw normal sample]]
+   [taoensso.carmine :as car :refer [wcar]])
   (:import
+   (clojure.lang PersistentQueue)
    (java.util UUID)))
 
 (def redis-conn {:pool {} :spec {:uri "redis://localhost:6379/13"}})
@@ -148,7 +149,7 @@
                  ::spec/experiment-name (str (UUID/randomUUID))}]
     (bandit/init backend learner)
     (loop [[choice & choices] (:time-series problem)
-           reward-queue clojure.lang.PersistentQueue/EMPTY
+           reward-queue PersistentQueue/EMPTY
            remaining-delay reward-delay
            result []
            t 0]

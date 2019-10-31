@@ -6,16 +6,18 @@
   (:require
    [clojure.algo.generic.functor :refer [fmap]]
    [curbside.bandit.ext :as ext]
-   [curbside.bandit.spec :as spec]
    [curbside.bandit.redis :as redis]
-   [taoensso.carmine :as car :refer [wcar]]))
+   [curbside.bandit.spec :as spec]
+   [taoensso.carmine :as car :refer [wcar]])
+  (:import
+   (clojure.lang PersistentArrayMap Atom)))
 
 (def ^:private carmine-conn-type
   "Alias for the type of Carmine's connection specification maps, to make
    defmethod calls more readable. A simple example of a valid carmine connection
    is
    {:pool {} :spec {:uri \"redis://localhost:6379/0\"}}"
-  clojure.lang.PersistentArrayMap)
+  PersistentArrayMap)
 
 (defn- arm-names-key
   "For a given experiment, creates the key containing the names of all arms for
@@ -69,7 +71,7 @@
        (fmap ext/parse-double)
        ((fn [x] (update x :n int)))))
 
-(defmethod get-arm-states clojure.lang.Atom
+(defmethod get-arm-states Atom
   [backend experiment-name]
   (->> (get-in @backend [experiment-name :arm-states])
        remove-deleted-arms))
@@ -122,7 +124,7 @@
                    :deleted? deleted?}]
     [new-max-reward new-state]))
 
-(defmethod record-reward clojure.lang.Atom
+(defmethod record-reward Atom
   [backend experiment-name arm-name reward]
   (swap! backend
          (fn [b]
@@ -228,7 +230,7 @@
                    :mean-reward new-mean-reward}]
     [new-max-reward new-state]))
 
-(defmethod bulk-reward clojure.lang.Atom
+(defmethod bulk-reward Atom
   [backend experiment-name arm-name bulk-reward]
   {:pre [backend experiment-name arm-name bulk-reward]}
   (swap! backend
@@ -281,7 +283,7 @@
   (fn [backend _experiment-name]
     (type backend)))
 
-(defmethod get-learner-params clojure.lang.Atom
+(defmethod get-learner-params Atom
   [backend experiment-name]
   (get-in @backend [experiment-name :params]))
 
@@ -309,7 +311,7 @@
                                   :mean-reward 0.0
                                   :deleted? false})
 
-(defmethod create-arm clojure.lang.Atom
+(defmethod create-arm Atom
   [backend {::spec/keys [experiment-name]} arm-name]
   (swap! backend
          (fn [b]
@@ -347,7 +349,7 @@
   (fn [backend _learner]
     (type backend)))
 
-(defmethod exists? clojure.lang.Atom
+(defmethod exists? Atom
   [backend {::spec/keys [experiment-name]
             :as _learner-map}]
   (not (nil? (get @backend experiment-name))))
@@ -366,7 +368,7 @@
   (fn [backend _learner]
     (type backend)))
 
-(defmethod init-experiment clojure.lang.Atom
+(defmethod init-experiment Atom
   [backend {::spec/keys [algo-params arm-names experiment-name]
             :as learner-map}]
   (when-not (exists? backend learner-map)
@@ -399,7 +401,7 @@
   (fn [backend _learner _arm-name]
     (type backend)))
 
-(defmethod delete-arm clojure.lang.Atom
+(defmethod delete-arm Atom
   [backend {::spec/keys [experiment-name]} arm-name]
   (swap! backend
          (fn [b]
@@ -419,7 +421,7 @@
   (fn [backend _experiment-name]
     (type backend)))
 
-(defmethod incr-choose-count clojure.lang.Atom
+(defmethod incr-choose-count Atom
   [backend experiment-name]
   (let [path [experiment-name :choose-count]]
     (get-in (swap! backend update-in path inc) path)))
@@ -434,7 +436,7 @@
   (fn [backend _experiment-name]
     (type backend)))
 
-(defmethod get-choose-count clojure.lang.Atom
+(defmethod get-choose-count Atom
   [backend experiment-name]
   (let [path [experiment-name :choose-count]]
     (get-in @backend path)))
