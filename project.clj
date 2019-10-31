@@ -11,6 +11,7 @@
                  [com.taoensso/carmine "2.19.1"]]
   :profiles {:dev {:jvm-opts ["-Xmx14G"]
                    :plugins [[lein-ancient "0.6.15"]
+                             [jonase/eastwood "0.3.5"]
                              [lein-cljfmt "0.6.4"]
                              [com.gfredericks/lein-how-to-ns "0.2.3"]]
                    :how-to-ns {:require-docstring? false
