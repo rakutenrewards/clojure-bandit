@@ -1,9 +1,9 @@
 (ns curbside.bandit.learner-state-test
   (:require
+   [clojure.test :refer :all]
    [curbside.bandit.learner-state :as state]
    [curbside.bandit.spec :as spec]
-   [clojure.test :refer :all]
-   [taoensso.carmine :as car :refer (wcar)]))
+   [taoensso.carmine :as car :refer [wcar]]))
 
 (def redis-conn {:pool {} :spec {:uri "redis://localhost:6379/13"}})
 

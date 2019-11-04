@@ -1,8 +1,6 @@
 (ns curbside.bandit.ext
-  (:require
-   [clojure.walk :as walk])
   (:import
-   (clojure.lang MapEntry)))
+   (clojure.lang PersistentQueue)))
 
 (defn stringify-keys
   "Converts the keys of the given map to strings."
@@ -45,28 +43,10 @@
 (defn pop-n
   "Pops n items from a persistent queue. Returns a persistent queue."
   [n q]
-  (apply conj clojure.lang.PersistentQueue/EMPTY (drop n q)))
+  (apply conj PersistentQueue/EMPTY (drop n q)))
 
 (defn map-kvs
   "Map a function that takes [key value] pairs and returns values
   over the given map. Keys are left unchanged."
   [f m]
   (into {} (map (fn [[x y]] [x (f x y)]) m)))
-
-(defn recursive-map-kvs
-  "Walks a structure, applying the user-supplied function f to all key-value
-  pairs. Example:
-
-  (recursive-map-kvs
-    (fn [[k v]] (if (= k :bar) [k (+ 1 v)] [k v]))
-    {:foo [{:bar 1} {:bar 2}] :bar 3 :baz 4})
-
-  Returns:
-
-  {:foo [{:bar 2} {:bar 3}] :bar 4 :baz 4}"
-  [f m]
-  (let [transform-kv (fn [x]
-                       (if (= MapEntry (type x))
-                         (f x)
-                         x))]
-    (walk/prewalk transform-kv m)))

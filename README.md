@@ -34,6 +34,10 @@ For complex use cases only. This requires a temperature parameter to be specifie
 
 This project uses `lein` in the standard way. `lein repl`, `lein test`, etc.
 
+### Code formatting
+
+To lint your code, run `lein fix`. This will use 2 Lein plugins: `clj-fmt` and `how-to-ns`.
+
 ### Documentation
 `lein codox` generates documentation, which might be easier to read than the raw source files. We try to include good markdown documentation, with code examples, inline links to individual functions, etc. Liberal application of `^:private` prevents implementation details from cluttering the documentation.
 

@@ -4,3 +4,4 @@
 pom.xml
 *.csv
 notebooks/.ipynb_checkpoints/*
+.eastwood
