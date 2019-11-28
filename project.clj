@@ -4,6 +4,7 @@
   :dependencies [[org.clojure/clojure "1.10.1"]
                  [org.clojure/core.match "0.3.0"]
                  [org.clojure/data.csv "0.1.4"]
+                 [org.clojure/test.check "0.10.0"]
                  [expound "0.7.2"]
                  [kixi/stats "0.5.2"]
                  [org.clojure/math.numeric-tower "0.0.4"]
@@ -19,7 +20,14 @@
                                :allow-refer-all? true
                                :allow-extra-clauses? false
                                :align-clauses? false
-                               :import-square-brackets? false}}
+                               :import-square-brackets? false}
+                   :cljfmt {:indents {instrumenting    [[:block 1]]
+                                      mocking          [[:block 1]]
+                                      stubbing         [[:block 1]]
+                                      mocking-private  [[:block 1]]
+                                      stubbing-private [[:block 1]]
+                                      timed            [[:block 2]]
+                                      for-all          [[:block 1]]}}}
              :ci [:test {:plugins [[test2junit "1.3.3"]]}]}
   :aliases {"fix" ["do" ["cljfmt" "fix"] ["how-to-ns" "fix"]]
             "check" ["do" ["cljfmt" "check"] ["how-to-ns" "check"]]}

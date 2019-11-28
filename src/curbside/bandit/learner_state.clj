@@ -109,14 +109,18 @@
 
    Note: rewards are scaled to be between 0 and 1.0 before being recorded. This
    is needed for UCB1."
-  (fn [backend _experiment-name _arm-name _reward]
+  (fn [backend _experiment-name _arm-name _reward-lower-bound _reward]
     (type backend)))
 
 (defn- record-reward*
   "Updates an arm's reward state using Welford's Algorithm."
-  [reward max-reward {:keys [mean-reward n deleted?] :as _old-arm-state}]
-  (let [new-max-reward (max reward max-reward)
-        scaled-reward (/ reward new-max-reward)
+  [reward max-reward {:keys [mean-reward n deleted?] :as _old-arm-state} reward-lower-bound]
+  (let [adjusted-reward (max reward reward-lower-bound)
+        new-max-reward (max adjusted-reward max-reward)
+        scaled-reward (if (== new-max-reward reward-lower-bound)
+                        reward-lower-bound
+                        (/ (- adjusted-reward reward-lower-bound)
+                           (- new-max-reward reward-lower-bound)))
         delta (- scaled-reward mean-reward)
         new-mean-reward (+ mean-reward (/ delta (inc n)))
         new-state {:n (inc n)
@@ -125,17 +129,18 @@
     [new-max-reward new-state]))
 
 (defmethod record-reward Atom
-  [backend experiment-name arm-name reward]
+  [backend experiment-name arm-name reward-lower-bound reward]
   (swap! backend
          (fn [b]
            (if-let [old-arm-state
                     (get-in b [experiment-name
                                :arm-states
                                arm-name])]
-             (let [max-reward
-                   (get-in b [experiment-name :max-reward])
-                   [new-max-reward new-state]
-                   (record-reward* reward max-reward old-arm-state)]
+             (let [max-reward (get-in b [experiment-name :max-reward])
+                   [new-max-reward new-state] (record-reward* reward
+                                                              max-reward
+                                                              old-arm-state
+                                                              reward-lower-bound)]
                (-> b
                    (assoc-in [experiment-name :max-reward] new-max-reward)
                    (assoc-in [experiment-name :arm-states arm-name] new-state)))
@@ -144,8 +149,8 @@
 ;; Note: this uses a lua script to ensure that all the steps of Welford's
 ;; algorithm are performed atomically.
 (defmethod record-reward carmine-conn-type
-  [backend experiment-name arm-name reward]
-  {:pre [backend experiment-name arm-name reward]}
+  [backend experiment-name arm-name reward-lower-bound reward]
+  {:pre [backend experiment-name arm-name reward-lower-bound reward]}
   (let [arm-key (arm-state-key experiment-name arm-name)
         max-reward-key (max-reward-key experiment-name)]
     (wcar backend
@@ -155,8 +160,9 @@
               local mean_reward = redis.call ('hget',_:arm-key,'mean-reward')
               local new_n = 1 + redis.call ('hget',_:arm-key,'n')
 
-              local new_max_reward = math.max(_:reward,max_reward)
-              local scaled_reward = _:reward/new_max_reward
+              local adjusted_reward = math.max(_:reward,_:reward_lower_bound)
+              local new_max_reward = math.max(adjusted_reward,max_reward)
+              local scaled_reward = (new_max_reward == _:reward_lower_bound) and _:reward_lower_bound or (adjusted_reward - _:reward_lower_bound) / (new_max_reward - _:reward_lower_bound)
               local delta = scaled_reward - mean_reward
               local new_mean_reward = mean_reward + (delta / new_n)
 
@@ -166,7 +172,8 @@
             end"
            {:arm-key arm-key
             :max-reward-key max-reward-key}
-           {:reward reward}))))
+           {:reward reward
+            :reward_lower_bound reward-lower-bound}))))
 
 (defmulti bulk-reward
   "For a given experiment and arm, increment the total number of times the
@@ -208,21 +215,22 @@
    is 1.0. Furthermore, there will be infinitely many additional rewards after
    we've seen the global maximum, so we are guaranteed to eventually converge
    on the true scaled mean."
-  (fn [backend _experiment-name _arm-name _reward]
+  (fn [backend _experiment-name _arm-name _reward-lower-bound _reward]
     (type backend)))
 
 (defn- bulk-reward*
-  [{::spec/keys [bulk-reward-mean
-                 bulk-reward-count
-                 bulk-reward-max]
-    :as _bulk-reward}
+  [{::spec/keys [bulk-reward-mean bulk-reward-count bulk-reward-max] :as _bulk-reward}
    old-max-reward
-   {old-mean-reward :mean-reward
-    old-n :n
-    :as _old-arm-state}]
+   {old-mean-reward :mean-reward old-n :n :as _old-arm-state}
+   reward-lower-bound]
   (let [new-n (+ old-n bulk-reward-count)
-        new-max-reward (max old-max-reward bulk-reward-max)
-        scaled-bulk-reward-mean (/ bulk-reward-mean new-max-reward)
+        adjusted-mean-reward (max bulk-reward-mean reward-lower-bound)
+        adjusted-max-reward (max bulk-reward-max reward-lower-bound)
+        new-max-reward (max old-max-reward adjusted-max-reward)
+        scaled-bulk-reward-mean (if (= new-max-reward reward-lower-bound)
+                                  reward-lower-bound
+                                  (/ (- adjusted-mean-reward reward-lower-bound)
+                                     (- new-max-reward reward-lower-bound)))
         delta (- scaled-bulk-reward-mean old-mean-reward)
         new-mean-reward (+ old-mean-reward
                            (* delta (/ bulk-reward-count new-n)))
@@ -231,42 +239,43 @@
     [new-max-reward new-state]))
 
 (defmethod bulk-reward Atom
-  [backend experiment-name arm-name bulk-reward]
-  {:pre [backend experiment-name arm-name bulk-reward]}
+  [backend experiment-name arm-name reward-lower-bound bulk-reward]
+  {:pre [backend experiment-name arm-name reward-lower-bound bulk-reward]}
   (swap! backend
          (fn [b]
-           (if-let [old-arm-state
-                    (get-in b [experiment-name
-                               :arm-states
-                               arm-name])]
-             (let [max-reward
-                   (get-in b [experiment-name :max-reward])
-                   [new-max-reward new-state]
-                   (bulk-reward* bulk-reward max-reward old-arm-state)]
+           (if-let [old-arm-state (get-in b [experiment-name :arm-states arm-name])]
+             (let [max-reward (get-in b [experiment-name :max-reward])
+                   [new-max-reward new-state] (bulk-reward* bulk-reward
+                                                            max-reward
+                                                            old-arm-state
+                                                            reward-lower-bound)]
                (-> b
                    (assoc-in [experiment-name :max-reward] new-max-reward)
                    (assoc-in [experiment-name :arm-states arm-name] new-state)))
              b))))
 
 (defmethod bulk-reward carmine-conn-type
-  [backend experiment-name arm-name {::spec/keys [bulk-reward-mean
-                                                  bulk-reward-count
-                                                  bulk-reward-max]
-                                     :as bulk-reward}]
-  {:pre [backend experiment-name arm-name bulk-reward]}
+  [backend experiment-name arm-name reward-lower-bound {::spec/keys [bulk-reward-mean
+                                                                     bulk-reward-count
+                                                                     bulk-reward-max]
+                                                        :as bulk-reward}]
+  {:pre [backend experiment-name arm-name reward-lower-bound bulk-reward]}
   (let [arm-key (arm-state-key experiment-name arm-name)
         max-reward-key (max-reward-key experiment-name)]
     (wcar backend
           (car/lua
            "if redis.call('exists',_:arm_key) == 1 then
-              local max_reward = redis.call('get',_:max_reward_key)
-              local mean_reward = redis.call('hget',_:arm_key,'mean-reward')
+              local old_max_reward = redis.call('get',_:max_reward_key)
+              local old_mean_reward = redis.call('hget',_:arm_key,'mean-reward')
               local new_n = _:bulk_reward_count + redis.call('hget',_:arm_key,'n')
 
-              local new_max_reward = math.max(_:bulk_reward_max, max_reward)
-              local scaled_bulk_reward_mean = _:bulk_reward_mean / new_max_reward
-              local delta = scaled_bulk_reward_mean - mean_reward
-              local new_mean_reward = mean_reward + (delta * (_:bulk_reward_count / new_n))
+              local adjusted_mean_reward = math.max(_:bulk_reward_mean,_:reward_lower_bound)
+              local adjusted_max_reward = math.max(_:bulk_reward_max,_:reward_lower_bound)
+
+              local new_max_reward = math.max(old_max_reward, adjusted_max_reward)
+              local scaled_bulk_reward_mean = (new_max_reward == _:reward_lower_bound) and _:reward_lower_bound or (adjusted_mean_reward - _:reward_lower_bound) / (new_max_reward - _:reward_lower_bound)
+              local delta = scaled_bulk_reward_mean - old_mean_reward
+              local new_mean_reward = old_mean_reward + (delta * (_:bulk_reward_count / new_n))
 
               redis.call('set',_:max_reward_key,new_max_reward)
               redis.call('hset',_:arm_key,'n',new_n)
@@ -276,7 +285,8 @@
             :max_reward_key max-reward-key}
            {:bulk_reward_count bulk-reward-count
             :bulk_reward_max bulk-reward-max
-            :bulk_reward_mean bulk-reward-mean}))))
+            :bulk_reward_mean bulk-reward-mean
+            :reward_lower_bound reward-lower-bound}))))
 
 (defmulti get-learner-params
   "Get the parameters of the learner."
@@ -300,34 +310,32 @@
       (ext/update-in-if-contains [::spec/min-temperature]
                                  ext/parse-double)
       (ext/update-in-if-contains [::spec/exploration-mult]
-                                 ext/parse-double)))
+                                 ext/parse-double)
+      (ext/update-in-if-contains [::spec/reward-lower-bound]
+                                 ext/parse-double)
+      (ext/update-in-if-contains [::spec/learner-algo]
+                                 keyword)))
 
 (defmulti create-arm
   "Adds an arm to an existing experiment."
   (fn [backend _learner _arm-name]
     (type backend)))
 
-(def ^:private default-arm-state {:n 1
-                                  :mean-reward 0.0
-                                  :deleted? false})
+(def ^:private default-arm-state
+  {:n 1
+   :mean-reward 0.0
+   :deleted? false})
+
+(def ^:private default-algo-params
+  {::spec/reward-lower-bound 0.0})
 
 (defmethod create-arm Atom
   [backend {::spec/keys [experiment-name]} arm-name]
   (swap! backend
          (fn [b]
-           (if (get-in b [experiment-name
-                          :arm-states
-                          arm-name
-                          :deleted?])
-             (assoc-in b
-                       [experiment-name
-                        :arm-states
-                        arm-name
-                        :deleted?]
-                       false)
-             (assoc-in b
-                       [experiment-name :arm-states arm-name]
-                       default-arm-state)))))
+           (if (get-in b [experiment-name :arm-states arm-name :deleted?])
+             (assoc-in b [experiment-name :arm-states arm-name :deleted?] false)
+             (assoc-in b [experiment-name :arm-states arm-name] default-arm-state)))))
 
 (defn- redis-init-arm
   "Initializes a new arm in Redis for a given experiment."
@@ -372,12 +380,13 @@
   [backend {::spec/keys [algo-params arm-names experiment-name]
             :as learner-map}]
   (when-not (exists? backend learner-map)
-    (let [arm-states (into {} (for [arm-name arm-names]
+    (let [algo-params-with-defaults (merge default-algo-params algo-params)
+          arm-states (into {} (for [arm-name arm-names]
                                 [arm-name default-arm-state]))]
       (swap! backend
              (fn [b]
                (-> b
-                   (assoc-in [experiment-name :params] algo-params)
+                   (assoc-in [experiment-name :params] algo-params-with-defaults)
                    (assoc-in [experiment-name :arm-states] arm-states)
                    (assoc-in [experiment-name :max-reward] 1.0)
                    (assoc-in [experiment-name :choose-count] 0)))))))
@@ -386,15 +395,16 @@
   [conn {::spec/keys [algo-params arm-names experiment-name]
          :as learner-map}]
   (when-not (exists? conn learner-map)
-    (wcar conn
-          (car/multi)
-          (car/hmset* (params-key experiment-name)
-                      (ext/stringify-keys algo-params))
-          (car/set (max-reward-key experiment-name) 1.0)
-          (apply car/sadd (arm-names-key experiment-name) arm-names)
-          (dorun (map #(redis-init-arm conn experiment-name %) arm-names))
-          (car/set (choose-count-key experiment-name) 0)
-          (car/exec))))
+    (let [algo-params-with-defaults (merge default-algo-params algo-params)]
+      (wcar conn
+            (car/multi)
+            (car/hmset* (params-key experiment-name)
+                        (ext/stringify-keys algo-params-with-defaults))
+            (car/set (max-reward-key experiment-name) 1.0)
+            (apply car/sadd (arm-names-key experiment-name) arm-names)
+            (dorun (map #(redis-init-arm conn experiment-name %) arm-names))
+            (car/set (choose-count-key experiment-name) 0)
+            (car/exec)))))
 
 (defmulti delete-arm
   "Deletes an arm from an existing experiment."

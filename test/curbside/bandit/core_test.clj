@@ -9,7 +9,7 @@
    [curbside.bandit.core :as bandit]
    [curbside.bandit.ext :as ext]
    [curbside.bandit.spec :as spec]
-   [kixi.stats.distribution :refer [draw normal sample]]
+   [kixi.stats.distribution :refer [draw gamma normal sample]]
    [taoensso.carmine :as car :refer [wcar]])
   (:import
    (clojure.lang PersistentQueue)
@@ -81,7 +81,7 @@
    Example invocation
    (non-stationary-problem n [{:mu [1.5 2.0] :sd [0.2 0.4]}
                               {:mu [2.5 3.0] :sd [0.1 0.2]}])"
-  [n dist-specs & {:keys [maximize?] :or {maximize? true}}]
+  [n dist-specs & {:keys [maximize?]}]
   {:time-series
    (for [i (range n)]
      (mapv #(non-stationary-sample i n %) dist-specs))
@@ -214,7 +214,7 @@
   (match [algo params]
     [::spec/epsilon-greedy {::spec/epsilon e}] (str "epsilon_" e)
     [::spec/random _] "random"
-    [::spec/ucb1 _] "ucb1"
+    [::spec/ucb1 {::spec/exploration-mult m}] (str "ucb1_" m)
     [::spec/softmax {::spec/temp-decay-per-step d}] (str "softmax_" d)))
 
 (defn generate-regret-csvs
@@ -356,11 +356,11 @@
       (performance-comparison (atom {})))
     (testing "redis backend"
       (performance-comparison redis-conn))
-    (testing "batch rewards, 5000 at a time"
+    (testing "batch rewards, 500 at a time"
       (testing "atom backend"
-        (performance-comparison (atom {}) :delay 5000 :bulk-rewards? true))
+        (performance-comparison (atom {}) :delay 500 :bulk-rewards? true))
       (testing "redis backend"
-        (performance-comparison redis-conn :delay 5000 :bulk-rewards? true)))))
+        (performance-comparison redis-conn :delay 500 :bulk-rewards? true)))))
 
 (defn performance-comparison-minimization
   [backend]
@@ -492,8 +492,8 @@
   (init-idempotent* redis-conn "redis"))
 
 (deftest ucb1-exploration
-  (let [state-1 {:more-explored-smaller-reward  {:n 1000000 :mean-reward 0.1}
-                 :less-explored-bigger-reward   {:n 10  :mean-reward 0.5}}]
+  (let [state-1 {:more-explored-smaller-reward {:n 1000000 :mean-reward 0.1}
+                 :less-explored-bigger-reward {:n 10 :mean-reward 0.5}}]
     (testing "When maximizing, the less explored arm with large reward is chosen"
       (is (= :less-explored-bigger-reward
              (#'bandit/choose-ucb1 state-1 {::spec/maximize? true}))))

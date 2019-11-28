@@ -281,17 +281,18 @@
 
 (defmulti ^:private reward*
   "Updates the learner state with the given reward. See [[reward]] for details."
-  (fn [_storage-backend learner _reward]
+  (fn [_storage-backend learner _learner-params _reward]
     (::spec/learner-algo learner)))
 
 (defmethod reward* ::spec/random
-  [_ _ _])
+  [_ _ _ _])
 
 (defmethod reward* :default
-  [storage-backend learner {::spec/keys [reward-value arm-name]}]
+  [storage-backend learner-info learner-params {::spec/keys [reward-value arm-name]}]
   (state/record-reward storage-backend
-                       (::spec/experiment-name learner)
+                       (::spec/experiment-name learner-info)
                        arm-name
+                       (::spec/reward-lower-bound learner-params)
                        reward-value))
 
 (defmulti ^:private create-arm*
@@ -355,7 +356,10 @@
   [storage-backend learner-info reward]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)
          (spec/check ::spec/reward reward)]}
-  (reward* storage-backend learner-info reward))
+  (let [experiment-name (::spec/experiment-name learner-info)
+        learner-params (state/get-learner-params storage-backend
+                                                 experiment-name)]
+    (reward* storage-backend learner-info learner-params reward)))
 
 (defn bulk-reward
   "Gives a learner a set of rewards for a particular arm. The caller must
@@ -372,10 +376,14 @@
   [storage-backend learner-info bulk-reward]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)
          (spec/check ::spec/bulk-reward bulk-reward)]}
-  (state/bulk-reward storage-backend
-                     (::spec/experiment-name learner-info)
-                     (::spec/arm-name bulk-reward)
-                     bulk-reward))
+  (let [experiment-name (::spec/experiment-name learner-info)
+        learner-params (state/get-learner-params storage-backend
+                                                 experiment-name)]
+    (state/bulk-reward storage-backend
+                       experiment-name
+                       (::spec/arm-name bulk-reward)
+                       (::spec/reward-lower-bound learner-params)
+                       bulk-reward)))
 
 (defn init
   "Initializes the state of a learner. Example invocation:
