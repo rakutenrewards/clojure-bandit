@@ -1,6 +1,7 @@
 (ns curbside.bandit.spec
   (:require
    [clojure.spec.alpha :as spec]
+   [clojure.spec.alpha :as s]
    [expound.alpha :as expound]))
 
 (defn check [type data]
@@ -8,28 +9,29 @@
     true
     (throw (IllegalArgumentException. ^String (expound/expound-str type data)))))
 
-(spec/def ::finite-double
+(spec/def ::real-number
   (spec/and number?
-            #(not= % Double/POSITIVE_INFINITY)
-            #(not= % Double/NEGATIVE_INFINITY)
-            #(not= % Double/NaN)))
+            #(Double/isFinite %)))
 
 (spec/def ::maximize? boolean?)
 
+(spec/def ::reward-lower-bound ::real-number)
+
 (spec/def ::common-params
-  (spec/keys :req [::maximize?]))
+  (spec/keys :req [::maximize?]
+             :opt [::reward-lower-bound]))
 
 (spec/def ::learner-algo #{::epsilon-greedy ::ucb1 ::random ::softmax})
 
-(spec/def ::starting-temperature ::finite-double)
+(spec/def ::starting-temperature ::real-number)
 
-(spec/def ::temp-decay-per-step ::finite-double)
+(spec/def ::temp-decay-per-step ::real-number)
 
-(spec/def ::min-temperature ::finite-double)
+(spec/def ::min-temperature ::real-number)
 
 (spec/def ::epsilon float?)
 
-(spec/def ::exploration-mult ::finite-double)
+(spec/def ::exploration-mult ::real-number)
 
 (spec/def ::epsilon-greedy-params
   (spec/and ::common-params
@@ -76,20 +78,30 @@
   (spec/keys :req [::learner-algo
                    ::experiment-name]))
 
-(spec/def ::reward-value ::finite-double)
+(spec/def ::reward-value ::real-number)
 
 (spec/def ::reward
   (spec/keys :req [::reward-value
                    ::arm-name]))
 
-(spec/def ::bulk-reward-mean ::finite-double)
+(spec/def ::n pos-int?)
 
-(spec/def ::bulk-reward-count int?)
+(spec/def ::mean-reward (s/double-in :min 0 :max 1))
 
-(spec/def ::bulk-reward-max ::finite-double)
+(spec/def ::max-reward ::real-number)
+
+(spec/def ::deleted? boolean?)
+
+(spec/def ::bulk-reward-mean ::real-number)
+
+(spec/def ::bulk-reward-count ::n)
+
+(spec/def ::bulk-reward-max ::real-number)
 
 (spec/def ::bulk-reward
-  (spec/keys :req [::bulk-reward-mean
-                   ::bulk-reward-count
-                   ::bulk-reward-max
-                   ::arm-name]))
+  (s/and (spec/keys :req [::bulk-reward-mean
+                          ::bulk-reward-count
+                          ::bulk-reward-max
+                          ::arm-name])
+         (fn [{::keys [bulk-reward-mean bulk-reward-max]}]
+           (<= bulk-reward-mean bulk-reward-max))))
