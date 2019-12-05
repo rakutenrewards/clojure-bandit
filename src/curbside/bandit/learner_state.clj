@@ -288,6 +288,9 @@
             :bulk_reward_mean bulk-reward-mean
             :reward_lower_bound reward-lower-bound}))))
 
+(def ^:private default-algo-params
+  {::spec/reward-lower-bound 0.0})
+
 (defmulti get-learner-params
   "Get the parameters of the learner."
   (fn [backend _experiment-name]
@@ -312,22 +315,20 @@
       (ext/update-in-if-contains [::spec/exploration-mult]
                                  ext/parse-double)
       (ext/update-in-if-contains [::spec/reward-lower-bound]
-                                 ext/parse-double)
+                                 ext/parse-double
+                                 (::spec/reward-lower-bound default-algo-params))
       (ext/update-in-if-contains [::spec/learner-algo]
                                  keyword)))
-
-(defmulti create-arm
-  "Adds an arm to an existing experiment."
-  (fn [backend _learner _arm-name]
-    (type backend)))
 
 (def ^:private default-arm-state
   {:n 1
    :mean-reward 0.0
    :deleted? false})
 
-(def ^:private default-algo-params
-  {::spec/reward-lower-bound 0.0})
+(defmulti create-arm
+  "Adds an arm to an existing experiment."
+  (fn [backend _learner _arm-name]
+    (type backend)))
 
 (defmethod create-arm Atom
   [backend {::spec/keys [experiment-name]} arm-name]

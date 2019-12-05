@@ -26,11 +26,16 @@
     (every? identity bools)))
 
 (defn update-in-if-contains
-  "update-in if possible, otherwise return map unchanged."
-  [m ks f]
-  (if (contains-in? m ks)
-    (update-in m ks f)
-    m))
+  "update-in if possible, otherwise return map unchanged. If `not-found` is
+  provided, a default value is associated into the map."
+  ([m ks f]
+   (if (contains-in? m ks)
+     (update-in m ks f)
+     m))
+  ([m ks f not-found]
+   (if (contains-in? m ks)
+     (update-in m ks f)
+     (assoc-in m ks not-found))))
 
 (defn parse-double
   [x]
