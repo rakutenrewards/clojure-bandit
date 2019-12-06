@@ -2,6 +2,7 @@
 .lein*
 .nrepl-port
 pom.xml
+pom.xml.asc
 *.csv
 notebooks/.ipynb_checkpoints/*
 .eastwood
