@@ -367,7 +367,9 @@
    the rewards. Example invocation:
    ```
    (bulk-reward backend-atom
-                {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
+                {::spec/learner-algo ::spec/ucb1
+                 ::spec/experiment-name \"exp\"
+                 ::spec/reward-lower-bound 0.0}
                 {::spec/bulk-reward-mean 12.5
                  ::spec/bulk-reward-count 10
                  ::spec/bulk-reward-max 15
