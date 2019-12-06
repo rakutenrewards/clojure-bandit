@@ -70,8 +70,8 @@
             [k (float (+ begin (* (/ i n) diff)))]))))
 
 (defn non-stationary-sample
-  [i n params]
-  (draw (normal (interpolate-params i n params))))
+  [dist-fn  i n params]
+  (draw (dist-fn (interpolate-params i n params))))
 
 (defn non-stationary-problem
   "Generates n samples for the given distribution specifications. The parameters
@@ -79,12 +79,12 @@
    to final values over the n samples.
 
    Example invocation
-   (non-stationary-problem n [{:mu [1.5 2.0] :sd [0.2 0.4]}
-                              {:mu [2.5 3.0] :sd [0.1 0.2]}])"
-  [n dist-specs & {:keys [maximize?]}]
+   (non-stationary-problem n gamma [{:shape [1.5 2.0] :scale [1.5 2.0]}
+                                    {:shape [1.7 1.7] :scale [1.7 1.7]}])"
+  [n dist-fn dist-specs & {:keys [maximize?]}]
   {:time-series
    (for [i (range n)]
-     (mapv #(non-stationary-sample i n %) dist-specs))
+     (mapv #(non-stationary-sample dist-fn i n %) dist-specs))
    :maximize? (if (nil? maximize?) true maximize?)})
 
 (defn optimal-total-reward
