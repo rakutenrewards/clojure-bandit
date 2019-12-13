@@ -182,7 +182,7 @@
   (when-let [arm-states (not-empty
                          (state/get-arm-states storage-backend
                                                experiment-name))]
-    (let [{::spec/keys [maximize?]}
+    (let [{::spec/keys [maximize?] :as params}
           (state/get-learner-params storage-backend
                                     experiment-name)
           call-count (state/get-choose-count storage-backend
@@ -199,7 +199,7 @@
         (fmap (constantly (/ 1.0 k)) arm-states)
 
         :else
-        (let [ucbs (upper-confidence-bounds arm-states maximize?)
+        (let [ucbs (upper-confidence-bounds arm-states params)
               best-key (if maximize? max-key min-key)
               best-arm (key (apply best-key val ucbs))]
           (ext/map-kvs
