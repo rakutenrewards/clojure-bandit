@@ -282,8 +282,7 @@
             chosen (repeatedly n #(bandit/choose backend learner))
             chosen-histogram (group-by identity chosen)
             chosen-frequencies (fmap #(double (/ (count %) n)) chosen-histogram)
-            probabilities (bandit/arm-selection-probabilities
-                           backend learner)]
+            probabilities (bandit/arm-selection-probabilities backend learner)]
         (doseq [arm-name ["1" "2" "3"]]
           (testing (str arm-name
                         " chosen frequency approximates expectation for "
