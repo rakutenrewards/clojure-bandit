@@ -4,12 +4,12 @@
    [clojure.core.match :refer [match]]
    [clojure.data.csv :as csv]
    [clojure.java.io :as io]
-   [clojure.math.numeric-tower :refer [abs]]
+   [clojure.math.numeric-tower :as math]
    [clojure.test :refer :all]
    [curbside.bandit.core :as bandit]
    [curbside.bandit.ext :as ext]
    [curbside.bandit.spec :as spec]
-   [kixi.stats.distribution :refer [draw gamma normal sample]]
+   [kixi.stats.distribution :as distribution]
    [taoensso.carmine :refer [wcar]])
   (:import
    (clojure.lang PersistentQueue)
@@ -19,7 +19,7 @@
 
 (defn approx-eq
   [x y eps]
-  (< (abs (- x y)) eps))
+  (< (math/abs (- x y)) eps))
 
 (use-fixtures :each
   (fn [run-test]
@@ -44,14 +44,14 @@
   "Generates n samples for the given distributions, in the format expected
    by the test helper functions."
   [n dists & {:keys [maximize?]}]
-  {:time-series (repeatedly n #(mapv draw dists))
+  {:time-series (repeatedly n #(mapv distribution/draw dists))
    :maximize? (if (nil? maximize?) true maximize?)})
 
 (defn k-armed-normal-problem
   "Generates a k-armed problem with normal distributions"
   [k n & {:keys [maximize?]}]
   (let [dists (for [i (range k)]
-                (normal {:mu (* 10 (rand-int (inc i))) :sd 2.0}))]
+                (distribution/normal {:mu (* 10 (rand-int (inc i))) :sd 2.0}))]
     (stationary-problem n dists :maximize? (if (nil? maximize?)
                                              true
                                              maximize?))))
@@ -70,7 +70,7 @@
 
 (defn non-stationary-sample
   [dist-fn i n params]
-  (draw (dist-fn (interpolate-params i n params))))
+  (distribution/draw (dist-fn (interpolate-params i n params))))
 
 (defn non-stationary-problem
   "Generates n samples for the given distribution specifications. The parameters
@@ -105,7 +105,7 @@
    reward and the best attainable reward, so a larger number is worse, for both
    maximization and minimization problems."
   [{:keys [time-series maximize?] :as _problem}]
-  (reduce + (map #(Math/abs (- (apply (if maximize? max min) %)
+  (reduce + (map #(math/abs (- (apply (if maximize? max min) %)
                                (apply (if maximize? min max) %)))
                  time-series)))
 
@@ -113,7 +113,7 @@
   "Returns the regret over time of a learner that always chooses the worst
    arm."
   [{:keys [time-series maximize?] :as _problem}]
-  (reductions + (map #(Math/abs (- (apply (if maximize? max min) %)
+  (reductions + (map #(math/abs (- (apply (if maximize? max min) %)
                                    (apply (if maximize? min max) %)))
                      time-series)))
 
@@ -199,13 +199,13 @@
 
 (defn total-regret
   [problem chosen-indices]
-  (Math/abs
+  (math/abs
    (- (optimal-total-reward problem)
       (total-reward problem chosen-indices))))
 
 (defn cumulative-total-regret
   [problem chosen-indices]
-  (map (comp #(Math/abs %) -) (cumulative-optimal-reward problem)
+  (map (comp #(math/abs %) -) (cumulative-optimal-reward problem)
        (cumulative-reward problem chosen-indices)))
 
 (defn algo-param->csv-column-name
@@ -295,9 +295,9 @@
   [backend
    & {:keys [delay bulk-rewards?]}]
   (let [prob (stationary-problem 100000
-                                 [(normal {:mu 200.7 :sd 2.0})
-                                  (normal {:mu 15.1 :sd 1.3})
-                                  (normal {:mu 1.3 :sd 2.0})]
+                                 [(distribution/normal {:mu 200.7 :sd 2.0})
+                                  (distribution/normal {:mu 15.1 :sd 1.3})
+                                  (distribution/normal {:mu 1.3 :sd 2.0})]
                                  :maximize? true)
         params {::spec/maximize? true}
         ucb-ixes (future
@@ -363,9 +363,9 @@
 (defn performance-comparison-minimization
   [backend]
   (let [prob (stationary-problem 100000
-                                 [(normal {:mu 200.7 :sd 2.0})
-                                  (normal {:mu 15.1 :sd 1.3})
-                                  (normal {:mu 1.3 :sd 2.0})]
+                                 [(distribution/normal {:mu 200.7 :sd 2.0})
+                                  (distribution/normal {:mu 15.1 :sd 1.3})
+                                  (distribution/normal {:mu 1.3 :sd 2.0})]
                                  :maximize? false)
         params {::spec/maximize? false}
         ucb-ixes (future

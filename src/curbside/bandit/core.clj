@@ -136,10 +136,9 @@
   (let [total-iterations (reduce + (map (comp :n val) arm-states))]
     (into {}
           (for [[arm-name {:keys [mean-reward n]}] arm-states]
-            (let [const
-                  (* (or exploration-mult 1.0)
-                     (Math/sqrt (/ (* 2 (Math/log total-iterations))
-                                   n)))]
+            (let [const (* (or exploration-mult 1.0)
+                           (Math/sqrt (/ (* 2 (Math/log total-iterations))
+                                         n)))]
               [arm-name ((if maximize? + -) mean-reward const)])))))
 
 (defn- choose-ucb1
