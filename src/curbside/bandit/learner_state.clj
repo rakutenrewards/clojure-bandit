@@ -407,6 +407,19 @@
             (car/set (choose-count-key experiment-name) 0)
             (car/exec)))))
 
+(defmulti reset-state
+  "Resets the state of the provided storage backend."
+  (fn [backend]
+    (type backend)))
+
+(defmethod reset-state Atom
+  [backend]
+  (reset! backend {}))
+
+(defmethod reset-state carmine-conn-type
+  [conn]
+  (wcar conn (car/flushdb)))
+
 (defmulti delete-arm
   "Deletes an arm from an existing experiment."
   (fn [backend _learner _arm-name]

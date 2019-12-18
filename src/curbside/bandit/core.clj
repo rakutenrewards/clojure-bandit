@@ -401,6 +401,14 @@
   {:pre [(spec/check ::spec/learner learner)]}
   (state/init-experiment storage-backend learner))
 
+(defn reset
+  "Clears all states from provided `storage-backend`. Example invocation:
+  ```
+  (reset my-atom-backend)
+  ```"
+  [storage-backend]
+  (state/reset-state storage-backend))
+
 (defn create-arm
   "Adds a new arm to the set of arms the learner can return from `choose`
    calls. Example invocation:

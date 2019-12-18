@@ -10,7 +10,7 @@
    [curbside.bandit.ext :as ext]
    [curbside.bandit.spec :as spec]
    [kixi.stats.distribution :refer [draw gamma normal sample]]
-   [taoensso.carmine :as car :refer [wcar]])
+   [taoensso.carmine :refer [wcar]])
   (:import
    (clojure.lang PersistentQueue)
    (java.util UUID)))
@@ -23,8 +23,7 @@
 
 (use-fixtures :each
   (fn [run-test]
-    (wcar redis-conn
-          (car/flushdb))
+    (bandit/reset redis-conn)
     (run-test)))
 
 (defn bulkify-rewards
@@ -70,7 +69,7 @@
             [k (float (+ begin (* (/ i n) diff)))]))))
 
 (defn non-stationary-sample
-  [dist-fn  i n params]
+  [dist-fn i n params]
   (draw (dist-fn (interpolate-params i n params))))
 
 (defn non-stationary-problem
