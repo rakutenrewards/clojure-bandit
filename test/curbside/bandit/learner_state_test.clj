@@ -52,6 +52,17 @@
   (test-init-backend (atom {}))
   (test-init-backend redis-conn))
 
+(defn test-reset-backend
+  [backend]
+  (state/init-experiment backend test-learner)
+  (is (true? (state/exists? backend test-learner)))
+  (state/reset-state backend)
+  (is (false? (state/exists? backend test-learner))))
+
+(deftest test-reset
+  (test-reset-backend (atom {}))
+  (test-reset-backend redis-conn))
+
 (defspec rewards-are-scaled-correctly
   100
   (prop/for-all [reward-value (s/gen ::spec/reward-value)
