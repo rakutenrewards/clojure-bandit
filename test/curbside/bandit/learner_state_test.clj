@@ -13,8 +13,7 @@
 
 (use-fixtures :each
   (fn [run-test]
-    (wcar redis-conn
-          (car/flushdb))
+    (state/reset-state redis-conn)
     (run-test)))
 
 (def test-learner {::spec/learner-algo ::spec/epsilon-greedy

@@ -88,17 +88,19 @@
 
 (defn- choose-epsilon-greedy
   "Chooses an arm according to the epsilon-greedy algorithm -- chooses the
-   best arm with probability (1 - epsilon). Otherwise, chooses a random arm."
+   best arm with probability (1 - epsilon + epsilon/k) and explores a random arm
+   with probability epsilon/k. Note that the best arm can also be chosen during
+   random exploration."
   [arm-means {::spec/keys [epsilon maximize?]}]
   {:pre [epsilon (not (nil? maximize?))]}
   (let [k (count (keys arm-means))
         arm-names (keys arm-means)
-        threshold (+ (- 1.0 epsilon) (/ epsilon k))
         best-key (if maximize? max-key min-key)
         best-arm (key (apply best-key val arm-means))
-        other-arms (filter #(not= % best-arm) arm-names)
-        rand-arm (nth other-arms (rand-int (- k 1)))]
-    (if (< (rand) threshold) best-arm rand-arm)))
+        rand-arm (nth arm-names (rand-int k))]
+    (if (>= (rand) epsilon)
+      best-arm
+      rand-arm)))
 
 (defmethod choose* ::spec/epsilon-greedy
   [_storage-backend _learner arm-states params]
