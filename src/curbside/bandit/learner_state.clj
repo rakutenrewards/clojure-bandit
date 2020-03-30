@@ -350,8 +350,8 @@
 (defmethod create-arm carmine-conn-type
   [backend {::spec/keys [experiment-name]} arm-name]
   (wcar backend
-        (car/sadd (arm-names-key experiment-name) arm-name)
-        (redis-init-arm backend experiment-name arm-name)))
+        (redis-init-arm backend experiment-name arm-name)
+        (car/sadd (arm-names-key experiment-name) arm-name)))
 
 (defmulti exists?
   "Returns true if an experiment exists."
@@ -402,8 +402,8 @@
             (car/hmset* (params-key experiment-name)
                         (ext/stringify-keys algo-params-with-defaults))
             (car/set (max-reward-key experiment-name) 1.0)
-            (apply car/sadd (arm-names-key experiment-name) arm-names)
             (dorun (map #(redis-init-arm conn experiment-name %) arm-names))
+            (apply car/sadd (arm-names-key experiment-name) arm-names)
             (car/set (choose-count-key experiment-name) 0)
             (car/exec)))))
 
