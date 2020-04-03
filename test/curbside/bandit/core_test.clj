@@ -156,7 +156,7 @@
         result
         (do
           (when-let [to-delete (get arm-deletion-times t)]
-            (bandit/delete-arm backend learner to-delete))
+            (bandit/soft-delete-arm backend learner to-delete))
           (when-let [to-add (get arm-addition-times t)]
             (bandit/create-arm backend learner to-add))
           (let [chosen-arm (bandit/choose backend learner)
