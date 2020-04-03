@@ -305,14 +305,14 @@
   [storage-backend learner arm-name]
   (state/create-arm storage-backend learner arm-name))
 
-(defmulti ^:private delete-arm*
+(defmulti ^:private soft-delete-arm*
   "Deletes an arm for the given experiement. See [[delete-arm]] for details."
   (fn [_storage-backend learner _arm-name]
     (::spec/learner-algo learner)))
 
-(defmethod delete-arm* :default
+(defmethod soft-delete-arm* :default
   [storage-backend learner arm-name]
-  (state/delete-arm storage-backend learner arm-name))
+  (state/soft-delete-arm storage-backend learner arm-name))
 
 (defn arm-selection-probabilities
   "Reports the current probability that each arm will be chosen. This can be
@@ -423,18 +423,19 @@
          (spec/check ::spec/arm-name arm-name)]}
   (create-arm* storage-backend learner-info arm-name))
 
-(defn delete-arm
+(defn soft-delete-arm
   "Removes an arm from the set of arms the learner can return from `choose`
-   calls. All learner-specific state for the arm is deleted. Example invocation:
+   calls. All learner-specific state for the arm is retained, so the arm can
+   be reactivated later with `create-arm`. Example invocation:
    ```
-   (delete-arm backend-atom
+   (soft-delete-arm backend-atom
                {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
                \"cool-new-arm\")
    ```"
   [storage-backend learner-info arm-name]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)
          (spec/check ::spec/arm-name arm-name)]}
-  (delete-arm* storage-backend learner-info arm-name))
+  (soft-delete-arm* storage-backend learner-info arm-name))
 
 (defn get-arm-states
   "Gets the state of all arms for the given learner. This can be used to create

@@ -97,8 +97,8 @@
                 "arm2" default-arm-state
                 "arm3" {:mean-reward 0.25 :n 2}}
                arm-states))))
-    (testing "delete arm"
-      (state/delete-arm backend test-learner "arm3")
+    (testing "soft delete arm"
+      (state/soft-delete-arm backend test-learner "arm3")
       (let [arm-states (state/get-arm-states backend "test-learner")]
         (is (= {"arm1" default-arm-state
                 "arm2" default-arm-state}

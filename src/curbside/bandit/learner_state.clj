@@ -420,18 +420,19 @@
   [conn]
   (wcar conn (car/flushdb)))
 
-(defmulti delete-arm
-  "Deletes an arm from an existing experiment."
+(defmulti soft-delete-arm
+  "Deletes an arm from an existing experiment. The arm can be re-enabled
+   later, without losing any reward data."
   (fn [backend _learner _arm-name]
     (type backend)))
 
-(defmethod delete-arm Atom
+(defmethod soft-delete-arm Atom
   [backend {::spec/keys [experiment-name]} arm-name]
   (swap! backend
          (fn [b]
            (assoc-in b [experiment-name :arm-states arm-name :deleted?] true))))
 
-(defmethod delete-arm carmine-conn-type
+(defmethod soft-delete-arm carmine-conn-type
   [conn {::spec/keys [experiment-name]} arm-name]
   (wcar conn
         (car/multi)
