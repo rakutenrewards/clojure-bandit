@@ -314,6 +314,15 @@
   [storage-backend learner arm-name]
   (state/soft-delete-arm storage-backend learner arm-name))
 
+(defmulti ^:private hard-delete-arm*
+  "Deletes an arm for the given experiement. See [[delete-arm]] for details."
+  (fn [_storage-backend learner _arm-name]
+    (::spec/learner-algo learner)))
+
+(defmethod hard-delete-arm* :default
+  [storage-backend learner arm-name]
+  (state/hard-delete-arm storage-backend learner arm-name))
+
 (defn arm-selection-probabilities
   "Reports the current probability that each arm will be chosen. This can be
    used for diagnostic and reporting purposes. Example invocation:
@@ -426,7 +435,13 @@
 (defn soft-delete-arm
   "Removes an arm from the set of arms the learner can return from `choose`
    calls. All learner-specific state for the arm is retained, so the arm can
-   be reactivated later with `create-arm`. Example invocation:
+   be reactivated later with `create-arm`. Additionally, calls to `reward` for
+   this arm will still update the arm's state. This can be used to temporarily
+   disable an arm, but for long-running experiments, you should use
+   hard-delete-arm to prevent thousands of arms from building up, which can
+   cause performance problems.
+
+   Example invocation:
    ```
    (soft-delete-arm backend-atom
                {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
@@ -436,6 +451,20 @@
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)
          (spec/check ::spec/arm-name arm-name)]}
   (soft-delete-arm* storage-backend learner-info arm-name))
+
+(defn hard-delete-arm
+  "Permanently deletes an arm and all of its reward data. It will no longer be
+   returned by `choose` calls, and `reward` calls for this arm will be ignored.
+   Example invocation:
+   ```
+   (soft-delete-arm backend-atom
+               {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp\"}
+               \"cool-new-arm\")
+   ```"
+  [storage-backend learner-info arm-name]
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)
+         (spec/check ::spec/arm-name arm-name)]}
+  (hard-delete-arm* storage-backend learner-info arm-name))
 
 (defn get-arm-states
   "Gets the state of all arms for the given learner. This can be used to create

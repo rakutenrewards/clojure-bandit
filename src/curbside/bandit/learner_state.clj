@@ -8,6 +8,7 @@
    [curbside.bandit.ext :as ext]
    [curbside.bandit.redis :as redis]
    [curbside.bandit.spec :as spec]
+   [medley.core :as medley]
    [taoensso.carmine :as car :refer [wcar]])
   (:import
    (clojure.lang PersistentArrayMap Atom)))
@@ -437,6 +438,26 @@
   (wcar conn
         (car/multi)
         (car/hmset (arm-state-key experiment-name arm-name) "deleted?" true)
+        (car/exec)))
+
+(defmulti hard-delete-arm
+  "Deletes an arm from an existing experiment. This permanently deletes all arm
+   data. See also `soft-delete-arm`."
+  (fn [backend _learner _arm-name]
+    (type backend)))
+
+(defmethod hard-delete-arm Atom
+  [backend {::spec/keys [experiment-name]} arm-name]
+  (swap! backend
+         (fn [b]
+           (medley/dissoc-in b [experiment-name :arm-states arm-name]))))
+
+(defmethod hard-delete-arm carmine-conn-type
+  [conn {::spec/keys [experiment-name]} arm-name]
+  (wcar conn
+        (car/multi)
+        (car/del (arm-state-key experiment-name arm-name))
+        (car/srem (arm-names-key experiment-name) arm-name)
         (car/exec)))
 
 (defmulti incr-choose-count

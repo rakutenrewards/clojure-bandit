@@ -186,3 +186,23 @@
 (deftest test-choose-call-counter
   (test-choose-call-counter-backend (atom {}) "ATOM:")
   (test-choose-call-counter-backend redis-conn "REDIS:"))
+
+(defn test-hard-delete-backend
+  [backend backend-name]
+  (testing (str backend-name "mixed hard and soft delete")
+    (state/init-experiment backend test-learner)
+    (state/soft-delete-arm backend test-learner "arm2")
+    (state/record-reward backend "test-learner" "arm2" 0 0.1)
+    (state/hard-delete-arm backend test-learner "arm2")
+    (state/record-reward backend "test-learner" "arm2" 0 0.1)
+    (is (= {"arm1" default-arm-state}
+           (state/get-arm-states backend "test-learner"))))
+  (testing (str backend-name "hard delete")
+    (state/hard-delete-arm backend test-learner "arm1")
+    (state/record-reward backend "test-learner" "arm2" 0 0.1)
+    (is (= {}
+           (state/get-arm-states backend "test-learner")))))
+
+(deftest test-hard-delete
+  (test-hard-delete-backend (atom {}) "ATOM:")
+  (test-hard-delete-backend redis-conn "REDIS:"))
