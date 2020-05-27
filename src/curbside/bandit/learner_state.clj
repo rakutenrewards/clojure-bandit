@@ -101,6 +101,23 @@
          remove-deleted-arms
          (fmap convert-arm-state-types))))
 
+(defmulti get-arm-names
+  "Gets the names of all arms for the given experiment. Returns a set of
+   strings."
+  (fn [backend _experiment-name]
+    (type backend)))
+
+(defmethod get-arm-names Atom
+  [backend experiment-name]
+  (->> (get-in @backend [experiment-name :arm-states])
+       remove-deleted-arms
+       keys
+       (into #{})))
+
+(defmethod get-arm-names carmine-conn-type
+  [backend experiment-name]
+  (into #{} (redis-get-arm-names backend experiment-name)))
+
 (defmulti record-reward
   "For a given experiment and arm, increment the total number of times the
    arm has been chosen, and add the given reward to the total reward the arm

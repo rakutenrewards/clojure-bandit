@@ -476,3 +476,22 @@
   [storage-backend learner-info]
   {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
   (state/get-arm-states storage-backend (::spec/experiment-name learner-info)))
+
+(defn get-arm-names
+  "Gets the names of all arms for the given learner. This is faster than
+   'get-arm-states', for circumstances where you just need the arm names.
+
+   Example invocation:
+   ```
+   (get-arm-states backend-atom
+                   {::spec/learner-algo ::spec/ucb1 ::spec/experiment-name \"exp \"})
+   ```
+
+   returns a set of arm names:
+
+   ```
+   #{\"arm-name-1\" \"arm-name-2\"}
+   ```"
+  [storage-backend learner-info]
+  {:pre [(spec/check ::spec/learner-minimal-info learner-info)]}
+  (state/get-arm-names storage-backend (::spec/experiment-name learner-info)))
