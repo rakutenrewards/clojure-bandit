@@ -90,6 +90,9 @@
                 "arm2" default-arm-state
                 "arm3" default-arm-state}
                arm-states))))
+    (testing "get arm names"
+      (let [arm-names (state/get-arm-names backend "test-learner")]
+        (is (= #{"arm1" "arm2" "arm3"} arm-names))))
     (testing "reward arm"
       (state/record-reward backend "test-learner" "arm3" 0 0.5)
       (let [arm-states (state/get-arm-states backend "test-learner")]

@@ -498,3 +498,19 @@
     (testing "When minimizing, the less explored arm with large reward is chosen"
       (is (= :less-explored-bigger-reward
              (#'bandit/choose-ucb1 state-1 {::spec/maximize? false}))))))
+
+(defn get-arm-states*
+  [backend backend-name]
+  (testing (str "get-arm-states for" backend-name)
+    (let [learner {::spec/algo-params {::spec/maximize? true
+                                       ::spec/learner-algo ::spec/epsilon-greedy
+                                       ::spec/epsilon 0.05}
+                   ::spec/arm-names ["arm1" "arm2"]
+                   ::spec/experiment-name "learner"
+                   ::spec/learner-algo ::spec/epsilon-greedy}]
+      (bandit/init backend learner)
+      (is (= #{"arm1" "arm2"} (bandit/get-arm-names backend learner))))))
+
+(deftest test-get-arm-states
+  (get-arm-states* (atom {}) "atom")
+  (get-arm-states* redis-conn "redis"))
