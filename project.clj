@@ -37,11 +37,7 @@
             [lein-release "1.0.5"]]
   :codox {:metadata {:doc/format :markdown}}
   :deploy-repositories
-  [["releases"
-    {:url "https://curbside.jfrog.io/curbside/libs-release-local/"
-     :username :env/artifactory_user
-     :password :env/artifactory_pass}]
-   ["snapshots"
-    {:url "https://curbside.jfrog.io/curbside/libs-snapshot-local/"
-     :username :env/artifactory_user
-     :password :env/artifactory_pass}]])
+  [["release" {:url "https://maven.pkg.github.com/RakutenReady/curbside-bandit"
+               :username :env/github_actor
+               :password :env/github_token
+               :sign-releases false}]])
