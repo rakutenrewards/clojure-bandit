@@ -37,7 +37,7 @@
             [lein-release "1.0.5"]]
   :codox {:metadata {:doc/format :markdown}}
   :deploy-repositories
-  [["release" {:url "https://maven.pkg.github.com/RakutenReady/curbside-bandit"
+  [["releases" {:url "https://maven.pkg.github.com/RakutenReady/curbside-bandit"
                :username :env/github_actor
                :password :env/github_token
                :sign-releases false}]])
