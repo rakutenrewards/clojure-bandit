@@ -1,6 +1,6 @@
-(defproject com.curbside/curbside-bandit "0.2.5-SNAPSHOT"
+(defproject com.curbside/clojure-bandit "0.2.5-SNAPSHOT"
   :description "Multi-armed bandit algorithms"
-  :url "https://github.com/Curbside/curbside-bandit"
+  :url "https://github.com/RakutenReady/clojure-bandit"
   :dependencies [[org.clojure/clojure "1.10.1"]
                  [org.clojure/core.match "0.3.0"]
                  [org.clojure/data.csv "0.1.4"]
@@ -37,7 +37,7 @@
             [lein-release "1.0.5"]]
   :codox {:metadata {:doc/format :markdown}}
   :deploy-repositories
-  [["releases" {:url "https://maven.pkg.github.com/RakutenReady/curbside-bandit"
+  [["releases" {:url "https://maven.pkg.github.com/RakutenReady/clojure-bandit"
                :username :env/github_actor
                :password :env/github_token
                :sign-releases false}]])
