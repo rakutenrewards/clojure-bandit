@@ -41,13 +41,3 @@ To lint your code, run `lein fix`. This will use 2 Lein plugins: `clj-fmt` and `
 ### Documentation
 `lein codox` generates documentation, which might be easier to read than the raw source files. We try to include good markdown documentation, with code examples, inline links to individual functions, etc. Liberal application of `^:private` prevents implementation details from cluttering the documentation.
 
-### Releasing to Artifactory
-
-###### TODO: Make this process automatic through a Jenkins job
-
-We use [lein-release](https://github.com/relaynetwork/lein-release) to release artifacts to Artifactory. To use:
-
-1. Export `GITHUB_ACTOR` and `GITHUB_TOKEN`. You can generate a personal token with `write:packages` permissions.
-2. Make sure you are on the master branch, and that its remote branch is set to the primary source repo (https://github.com/Curbside/curbside-bandit).
-3. Ensure that `pgp-agent` has your password cached so you don't need to be prompted. `lein release` sometimes malfunctions if it is interrupted by the pgp prompt.
-4. Run `lein release :patch`. Replace `:patch` with `:minor` or `:major` as needed. This determines which of the version numbers will be changed in project.clj (the version number format is MAJOR.MINOR.PATCH).
